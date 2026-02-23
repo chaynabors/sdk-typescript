@@ -1,0 +1,15 @@
+{
+  "name": "strands-poly",
+  "version": "0.0.1",
+  "private": true,
+  "workspaces": [
+    "strands-ts",
+    "strands-wasm"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "build:sdk": "npm run build -w strands-ts",
+    "build:wasm": "npm run build -w strands-wasm",
+    "clean": "npm run clean --workspaces"
+  }
+}

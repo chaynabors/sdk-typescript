@@ -1,73 +1,150 @@
-# Strands Personal Monorepo
+# Strands
 
-Personal monorepo for Strands projects. To later be moved into the strands-labs org.
+Monorepo for the polyglot Strands agent SDK and the Filament execution kernel.
 
-## Repository Structure
+## Overview
 
-### strands-metrics/
+The upstream Strands SDKs ([sdk-python](https://github.com/strands-agents/sdk-python), [sdk-typescript](https://github.com/strands-agents/sdk-typescript)) reimplement the agent loop, model providers, tool system, and streaming independently in each language. Each SDK ships 12+ model providers, MCP support, tool calling, and more, all written from scratch. This works well, but every new feature or integration costs N implementations for N languages.
 
-Rust CLI tool for syncing GitHub organization data to SQLite. Collects issues, pull requests, commits, stars, and CI workflow runs. Computes daily aggregated metrics per repository.
+This repo takes a different approach: define the agent interface once in WIT, implement it once in TypeScript, compile it to a WASM component, and host it from any language. New features ship to every language at the same time.
 
-### strands-grafana/
+Both approaches are under active development. The polyglot SDK in this repo provides the core value today as a working cross-language agent runtime. Filament represents the direction things move in: a deterministic execution kernel that replaces the monolithic WASM component with a modular, event-sourced architecture.
 
-Grafana configuration with SQLite datasource for visualizing GitHub metrics. Includes health dashboard (DORA-style metrics) and triage dashboard (operational views).
+### Upstream vs. This Repo
 
-### strands-rs/
+|                     | Upstream SDKs                                                 | This Repo                                         |
+| ------------------- | ------------------------------------------------------------- | ------------------------------------------------- |
+| **Approach**        | Native reimplementation per language                          | Single WASM component, thin host wrappers         |
+| **Feature cost**    | N implementations for N languages                             | 1 implementation, available everywhere            |
+| **Model providers** | 12+ per SDK (Bedrock, Anthropic, OpenAI, Gemini, Ollama, ...) | 4 (Bedrock, Anthropic, OpenAI, Gemini), growing   |
+| **Maturity**        | Production, full-featured                                     | Experimental, functional                          |
+| **Debugging**       | Native stack traces, language debuggers                       | WASM boundary adds indirection                    |
+| **Ecosystem**       | Direct access to pip/npm packages                             | Tools cross the WASM boundary via `tool-provider` |
 
-Experimental Strands SDK implementation in Rust.
+## Architecture
 
-### filament-sys/
+```mermaid
+graph TD
+    subgraph "Source of Truth"
+        WIT["wit/agent.wit"]
+    end
 
-Rust FFI bindings for the Filament specification. Filament is a specification for autonomous AI agents with deterministic execution, WebAssembly sandboxing, and resource limits.
+    subgraph "Type Generation"
+        WIT -->|"jco guest-types"| TS_GEN["strands-ts/generated/"]
+        WIT -->|"jco guest-types"| WASM_GEN["strands-wasm/generated/"]
+        WIT -->|"wasmtime bindgen!"| RS_GEN["strands-rs types/traits"]
+        WIT -->|"componentize-py"| PY_GEN["strands-py/generated/"]
+    end
 
-### metrics.db
+    subgraph "Implementation"
+        TS_GEN --> TS["strands-ts<br/>TypeScript SDK"]
+        WASM_GEN --> ENTRY["strands-wasm/entry.ts"]
+        TS --> ENTRY
+    end
 
-SQLite database tracked via Git LFS. Contains synced GitHub metrics and pre-computed daily aggregates.
+    subgraph "Compilation"
+        ENTRY -->|"esbuild +<br/>componentize-js"| WASM["strands-wasm<br/>.wasm component"]
+        WASM -->|"Wasmtime AOT"| CWASM[".cwasm<br/>precompiled"]
+    end
 
-## Prerequisites for Grafana
+    subgraph "Host SDKs"
+        CWASM --> RS["strands-rs<br/>Rust host"]
+        RS -->|"PyO3 + maturin"| PY["strands-py<br/>Python host"]
+        DERIVE["strands-derive"] -.->|"proc macro"| RS
+    end
 
-### Git LFS
-
-Required to clone the metrics.db file. Install and initialize:
-
-```bash
-# macOS
-brew install git-lfs
-
-# Ubuntu/Debian
-sudo apt-get install git-lfs
-
-# Initialize
-git lfs install
-git lfs pull
+    subgraph "Standalone"
+        NATIVE["strands-rs-native<br/>Pure Rust SDK<br/>(no WASM)"]
+    end
 ```
 
-Verify with `git lfs ls-files` - should show metrics.db.
+### Data Flow
 
-### Other
+```mermaid
+sequenceDiagram
+    participant Host as Host (Python/Rust)
+    participant Guest as WASM Guest (TS SDK)
+    participant Model as Model API
 
-- Docker and Docker Compose (Or `podman` which I prefer)
+    Host->>Guest: agent.generate(input, tools, config)
+    loop Agent Loop (inside guest)
+        Guest->>Model: stream request
+        Model-->>Guest: text-delta events
+        Guest-->>Host: stream-event: text-delta
+        Model-->>Guest: tool-use event
+        Guest-->>Host: stream-event: tool-use
+        Host->>Host: execute tool handler
+        Host->>Guest: tool result
+        Guest->>Model: continue with tool result
+    end
+    Model-->>Guest: end-turn
+    Guest-->>Host: stream-event: stop
+```
+
+The agent loop runs entirely inside the WASM guest. The host observes stream events and executes tool handlers when the model requests them.
+
+## Packages
+
+### Strands SDK
+
+| Package                | Language   | What It Does                                                                                                                                                                                                                                |
+| ---------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **wit/**               | WIT        | Agent interface contract and single source of truth. Defines stream events (text-delta, tool-use, tool-result, metadata, stop, error, interrupt), model configs (Anthropic, Bedrock), and the exported `agent`/`response-stream` resources. |
+| **strands-ts/**        | TypeScript | Core SDK implementation. Contains the Agent class, model providers (Anthropic, Bedrock, OpenAI, Gemini), tool system (function tools, Zod tools, MCP), hooks, conversation management, and vended tools. About 25k lines.                   |
+| **strands-wasm/**      | TS to WASM | Bridges the TS SDK to WIT exports via `entry.ts`, then compiles everything into a WASM component (~29MB) using esbuild and componentize-js.                                                                                                 |
+| **strands-rs/**        | Rust       | WASM host. Embeds the AOT-precompiled component and runs it in Wasmtime with async support. Provides `AgentBuilder`, streaming, session persistence, and AWS credential injection. Has optional `pyo3` and `uniffi` features for FFI.       |
+| **strands-py/**        | Python     | Python SDK. A PyO3 wrapper around `strands-rs` built via maturin. Adds the `Agent` class, `@tool` decorator with schema generation from type hints and docstrings, hooks, structured output (Pydantic), and hot tool reloading.             |
+| **strands-derive/**    | Rust       | Proc macro crate. `#[derive(Export)]` generates PyO3/UniFFI wrapper types and `from_py_dict` extractors from WIT bindgen output.                                                                                                            |
+| **strands-rs-native/** | Rust       | Standalone native Rust SDK with no WASM. Uses `anthropik` for direct Anthropic API access and `rmcp` for MCP. A simpler alternative when cross-language portability is not needed.                                                          |
+
+### Filament
+
+Filament is an event-sourced execution kernel that aims to solve the N-languages x M-integrations problem structurally. Instead of a monolithic WASM component, individual features (model adapters, tools, audio pipelines) become separate WASM modules that load into a managed runtime with sandboxing, virtual time, and capability-based security.
+
+It is currently a working proof-of-concept with no integration into the Strands SDK. See the [0.2.0 spec](docs/filament-0.2.0.md) (outdated but directionally useful).
+
+| Package               | Language   | What It Does                                                                                                                                                                             |
+| --------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **filament-wit/**     | WIT        | Kernel interface. Defines the `plugin` resource (load/weave lifecycle), `channel` (pub/sub), `timer`, `logger`, `blob-store`, and `config` interfaces.                                   |
+| **filament-core/**    | Rust       | Runtime kernel. Handles event-sourced execution with pipelines, plugins, and pluggable module loaders (Wasmtime native, browser). Manages weave cycles with virtual time.                |
+| **filament-cli/**     | Rust       | Developer CLI. `filament new` scaffolds modules (Rust/TS/Python templates), `filament build` compiles to WASM with an embedded manifest, and `filament run` executes pipeline manifests. |
+| **filament-sdk-rs/**  | Rust       | SDK for authoring Filament plugins in Rust. A thin wrapper around wit-bindgen output.                                                                                                    |
+| **filament-sdk-js/**  | TypeScript | Generated type definitions for authoring Filament plugins in TypeScript.                                                                                                                 |
+| **strands-filament/** | TypeScript | Example Filament module. Ping-pong plugins that demonstrate the lifecycle, channel communication, and timers.                                                                            |
+
+### Tooling
+
+| Package              | Language | What It Does                                                                      |
+| -------------------- | -------- | --------------------------------------------------------------------------------- |
+| **strands-metrics/** | Rust     | CLI for syncing GitHub org data (issues, PRs, commits, stars, CI runs) to SQLite. |
+| **strands-grafana/** | Docker   | Grafana dashboards with a SQLite datasource for the metrics above.                |
+| **docs/**            | Markdown | Architecture docs, Filament specs, and test guides.                               |
+| **justfile**         | Just     | Build orchestration for the full pipeline.                                        |
 
 ## Quick Start
 
 ```bash
-# Clone and setup Git LFS
-git clone <repo-url>
-cd strands-personal-mono
-git lfs install
-git lfs pull
+# Install all toolchains and dependencies
+just setup
 
-# OPTIONAL: Sync metrics (requires GitHub token and Rust toolchain)
-cd strands-metrics
-export GITHUB_TOKEN="token"
-cargo run --release -- sync
+# Regenerate all language bindings from WIT
+just generate
 
-# Launch Grafana
-cd ../strands-grafana
-docker-compose up # or podman compose up
-# Navigate to http://localhost:3000
+# Build everything: TS, WASM, Rust AOT, Python extension
+just build
+
+# Run tests per language
+just test-ts
+just test-rs
+just test-py
+
+# Run a Rust example (requires ANTHROPIC_API_KEY)
+just example hello_strands
+
+# Full CI pipeline
+just ci
 ```
 
 ## License
 
-Licensed under Apache-2.0 OR MIT.
+Licensed under MIT or Apache-2.0.

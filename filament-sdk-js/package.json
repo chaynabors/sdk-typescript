@@ -1,0 +1,30 @@
+{
+  "name": "@filament/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Filament Component Model bindings",
+  "type": "module",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": "./index.d.ts"
+  },
+  "scripts": {
+    "generate": "jco guest-types ../filament-wit --name filament:core --world-name module --out-dir generated",
+    "build": "npm run generate",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "generated",
+    "index.d.ts"
+  ],
+  "devDependencies": {
+    "@bytecodealliance/jco": "^1.6.5"
+  },
+  "keywords": [
+    "filament",
+    "webassembly",
+    "component-model",
+    "wasm"
+  ],
+  "license": "MIT OR Apache-2.0"
+}

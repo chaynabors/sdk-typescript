@@ -1,0 +1,221 @@
+package filament:core;
+
+interface types {
+    variant error {
+        not-found,
+        permission-denied
+    }
+
+    record trace-context {
+        trace-id-hi: u64,
+        trace-id-lo: u64,
+        span-id: u64,
+        parent-id: option<u64>,
+        trace-flags: u8,
+    }
+
+    type trace-state = list<tuple<string, string>>;
+
+    record host-bound-event {
+        topic: string,  
+        data: option<list<u8>>,    
+        trace-context: option<trace-context>,
+        trace-state: option<trace-state>,
+    }
+
+    record guest-bound-event {
+        topic: string,
+        id: u64,           
+        timestamp: u64,    
+        source: string,
+        data: option<list<u8>>,
+        trace-context: trace-context,
+        trace-state: option<trace-state>,
+    }
+
+    type timer-id = u64;
+}
+
+interface config {
+    variant offset {
+        z,
+        custom(s16),
+    }
+
+    record date {
+        year: u16,
+        month: u8,
+        day: u8,
+    }
+
+    record time {
+        hour: u8,
+        minute: u8,
+        second: u8,
+        nanosecond: u32,
+    }
+
+    record offset-date-time {
+        offset: offset,
+        date: date,
+        time: time,
+    }
+
+    record local-date-time {
+        date: date,
+        time: time,
+    }
+
+    variant config-error {
+        not-found,
+        type-mismatch(tuple<string, string>),
+    }
+
+    get-string: func(path: string) -> result<string, config-error>;
+    get-int: func(path: string) -> result<s64, config-error>;
+    get-float: func(path: string) -> result<f64, config-error>;
+    get-bool: func(path: string) -> result<bool, config-error>;
+    get-offset-date-time: func(path: string) -> result<offset-date-time, config-error>;
+    get-local-date-time: func(path: string) -> result<local-date-time, config-error>;
+    get-local-date: func(path: string) -> result<date, config-error>;
+    get-local-time: func(path: string) -> result<time, config-error>;
+
+    get-string-array: func(path: string) -> result<list<string>, config-error>;
+    get-int-array: func(path: string) -> result<list<s64>, config-error>;
+    get-float-array: func(path: string) -> result<list<f64>, config-error>;
+    get-bool-array: func(path: string) -> result<list<bool>, config-error>;
+    get-offset-date-time-array: func(path: string) -> result<list<offset-date-time>, config-error>;
+    get-local-date-time-array: func(path: string) -> result<list<local-date-time>, config-error>;
+    get-local-date-array: func(path: string) -> result<list<date>, config-error>;
+    get-local-time-array: func(path: string) -> result<list<time>, config-error>;
+
+    keys: func(path: option<string>) -> result<list<string>, config-error>;
+}
+
+interface channel {
+    use types.{host-bound-event, guest-bound-event, error};
+
+    resource sender {
+        send: func(evt: host-bound-event) -> result<u64, error>;
+    }
+
+    resource receiver {
+        recv: func(count: u32) -> result<list<guest-bound-event>, error>;
+    }
+
+    record open-args {
+        topic: string,
+    }
+
+    open: func(args: open-args) -> result<tuple<sender, receiver>, error>;
+    open-reader: func(args: open-args) -> result<receiver, error>;
+    open-writer: func(args: open-args) -> result<sender, error>;
+}
+
+interface timer {
+    use types.{error, timer-id};
+
+    record arm-args {
+        nanos: u64,
+    }
+
+    record disarm-args {
+        id: timer-id,
+    }
+
+    arm: func(args: arm-args) -> result<timer-id, error>;
+    disarm: func(args: disarm-args) -> result<_, error>;
+}
+
+interface logger {
+    enum level { debug, info, warn, error }
+
+    log: func(level: level, message: string);
+}
+
+interface blob-store {
+    use types.{error};
+
+    type blob-handle = u64;
+
+    resource writer {
+        write: func(chunk: list<u8>) -> result<_, error>;
+        commit: func() -> result<blob-handle, error>;
+        abort: func();
+    }
+
+    resource reader {
+        read: func(len: u64) -> result<list<u8>, error>;
+    }
+
+    open-write: func() -> result<writer, error>;
+    open-read: func(handle: blob-handle) -> result<reader, error>;
+
+    exists: func(handle: blob-handle) -> result<bool, error>;
+}
+
+interface plugin {
+    use types.{guest-bound-event, trace-context, error, timer-id};
+
+    record timer-fired {
+        timer-id: timer-id,
+        scheduled-for: u64,
+        skew: s64,
+    }
+
+    record weave-args {
+        tick: u64,
+        virtual-time: u64,
+        physical-time: u64,
+        delta-time: u64,
+        trace: trace-context,
+        triggers: list<guest-bound-event>,
+        timers: list<timer-fired>,
+    }
+
+    variant signal {
+        park,
+        yield,
+    }
+
+    record version {
+        major: u16,
+        minor: u16,
+        patch: u32,
+    }
+
+    enum scheduling-policy {
+        shared,
+        dedicated,
+    }
+
+    record host-info {
+        version: version,
+        mem-max: u64,
+        time-limit: u64,
+        bus-size: u64,
+        cores: u32,
+        policy: scheduling-policy,
+    }
+
+    record load-args {
+        host-info: host-info,
+        entrypoint: string,
+        version: version,
+    }
+
+    resource plugin {
+        load: static func(args: load-args) -> result<plugin, error>;
+        weave: func(args: weave-args) -> result<signal, error>;
+    }
+}
+
+world module {
+    import config;
+    import channel;
+    import timer;
+    import logger;
+    import blob-store;
+
+    export plugin;
+}

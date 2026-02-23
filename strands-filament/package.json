@@ -1,0 +1,15 @@
+{
+  "name": "strands-filament",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "compile": "tsc"
+  },
+  "dependencies": {
+    "@filament/sdk": "*"
+  },
+  "devDependencies": {
+    "@bytecodealliance/jco": "^1.6.5",
+    "typescript": "^5.7.2"
+  }
+}
