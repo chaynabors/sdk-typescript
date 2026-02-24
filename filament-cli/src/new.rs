@@ -144,6 +144,7 @@ impl NewCommand {
 
     /// Prompts the user for confirmation before overwriting an existing directory
     fn confirm_overwrite(&self, path: &Path) -> Result<bool> {
+        let _ = &self;
         confirm(format!(
             "Directory '{}' already exists. Overwrite?",
             path.display()
@@ -154,6 +155,7 @@ impl NewCommand {
 
     /// Extracts the selected template to the target directory, handling variable replacement and file permissions
     fn extract_template(&self, target_path: &Path, name: &str, template: &Template) -> Result<u64> {
+        let _ = &self;
         let bundle = template.bundle();
 
         fs::create_dir_all(target_path)

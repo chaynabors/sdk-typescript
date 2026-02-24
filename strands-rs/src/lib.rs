@@ -52,7 +52,10 @@ pub use wasmtime::component::ResourceAny;
 
 /// A function that dispatches tool calls from the guest.
 /// Receives `(tool_name, input_json, tool_use_id)` and returns `Ok(result_json)` or `Err(error_message)`.
-type ToolHandlerFn = Box<dyn Fn(&str, &str, &str) -> Result<String, String> + Send + Sync>;
+type ToolDispatchFn = Box<dyn Fn(&str, &str, &str) -> Result<String, String> + Send + Sync>;
+
+/// Per-tool handler that receives input JSON and returns result JSON or an error.
+type ToolHandlerFn = Box<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
 
 /// Receives `(level, message, optional_context_json)`.
 type LogHandlerFn = Box<dyn Fn(&str, &str, Option<&str>) + Send + Sync>;
@@ -61,7 +64,7 @@ struct HostState {
     ctx: WasiCtx,
     http: WasiHttpCtx,
     table: ResourceTable,
-    tool_dispatch: Option<ToolHandlerFn>,
+    tool_dispatch: Option<ToolDispatchFn>,
     log_handler: Option<LogHandlerFn>,
 }
 
@@ -144,8 +147,8 @@ pub struct AgentBuilder {
     system_prompt: Option<String>,
     system_prompt_blocks: Option<String>,
     tools: Vec<ToolSpec>,
-    handlers: HashMap<String, Box<dyn Fn(&str) -> Result<String, String> + Send + Sync>>,
-    tool_dispatch: Option<ToolHandlerFn>,
+    handlers: HashMap<String, ToolHandlerFn>,
+    tool_dispatch: Option<ToolDispatchFn>,
     log_handler: Option<LogHandlerFn>,
     trace_context: Option<String>,
     use_jit: bool,
@@ -236,40 +239,7 @@ impl AgentBuilder {
 
     /// Build the agent, loading and instantiating the WASM component.
     pub async fn build(self) -> Result<Agent> {
-        let tools: Option<Vec<ToolSpec>> = if self.tools.is_empty() {
-            None
-        } else {
-            Some(self.tools)
-        };
-
-        let tool_dispatch = if let Some(dispatch) = self.tool_dispatch {
-            Some(dispatch)
-        } else if !self.handlers.is_empty() {
-            let handlers = self.handlers;
-            Some(Box::new(
-                move |name: &str, input: &str, _tool_use_id: &str| -> Result<String, String> {
-                    match handlers.get(name) {
-                        Some(handler) => handler(input),
-                        None => Err(format!("unknown tool: {name}")),
-                    }
-                },
-            ) as ToolHandlerFn)
-        } else {
-            None
-        };
-
-        Agent::from_parts(
-            self.model_config,
-            self.model_params,
-            self.system_prompt,
-            self.system_prompt_blocks,
-            tools,
-            tool_dispatch,
-            self.log_handler,
-            self.trace_context,
-            self.use_jit,
-        )
-        .await
+        Agent::from_builder(self).await
     }
 }
 
@@ -326,17 +296,29 @@ impl Agent {
         }
     }
 
-    async fn from_parts(
-        model_config: Option<ModelConfig>,
-        model_params: Option<ModelParams>,
-        system_prompt: Option<String>,
-        system_prompt_blocks: Option<String>,
-        tools: Option<Vec<ToolSpec>>,
-        tool_dispatch: Option<ToolHandlerFn>,
-        log_handler: Option<LogHandlerFn>,
-        trace_context: Option<String>,
-        use_jit: bool,
-    ) -> Result<Self> {
+    async fn from_builder(builder: AgentBuilder) -> Result<Self> {
+        let tools = if builder.tools.is_empty() {
+            None
+        } else {
+            Some(builder.tools)
+        };
+
+        let tool_dispatch = if let Some(dispatch) = builder.tool_dispatch {
+            Some(dispatch)
+        } else if !builder.handlers.is_empty() {
+            let handlers = builder.handlers;
+            Some(Box::new(
+                move |name: &str, input: &str, _tool_use_id: &str| -> Result<String, String> {
+                    match handlers.get(name) {
+                        Some(handler) => handler(input),
+                        None => Err(format!("unknown tool: {name}")),
+                    }
+                },
+            ) as ToolDispatchFn)
+        } else {
+            None
+        };
+
         let mut wasm_config = Config::new();
         wasm_config.async_support(true);
         wasm_config.wasm_component_model(true);
@@ -345,7 +327,7 @@ impl Agent {
 
         let engine = Engine::new(&wasm_config)?;
 
-        let component = if use_jit {
+        let component = if builder.use_jit {
             let wasm_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../strands-wasm/dist/strands-agent.wasm");
             Component::from_file(&engine, &wasm_path)
@@ -381,7 +363,7 @@ impl Agent {
                 http: WasiHttpCtx::new(),
                 table: ResourceTable::new(),
                 tool_dispatch,
-                log_handler,
+                log_handler: builder.log_handler,
             },
         );
 
@@ -390,15 +372,15 @@ impl Agent {
         // The guest is bundled with --platform=browser so the AWS SDK can't
         // resolve credentials from the filesystem or environment. Inject them
         // into the model config so the guest passes them directly to the client.
-        let model_config = inject_aws_credentials(model_config);
+        let model_config = inject_aws_credentials(builder.model_config);
 
         let config = WitAgentConfig {
             model: model_config,
-            model_params,
-            system_prompt,
-            system_prompt_blocks,
+            model_params: builder.model_params,
+            system_prompt: builder.system_prompt,
+            system_prompt_blocks: builder.system_prompt_blocks,
             tools,
-            trace_context,
+            trace_context: builder.trace_context,
         };
 
         let iface = instance.strands_agent_api();

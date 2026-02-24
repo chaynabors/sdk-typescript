@@ -44,10 +44,12 @@ impl VolatileStorage {
     }
 }
 
+#[allow(dead_code)]
 pub struct VolatileBlobStore {
     blobs: RwLock<HashMap<String, Arc<Vec<u8>>>>,
 }
 
+#[allow(dead_code)]
 impl VolatileBlobStore {
     pub fn new() -> Self {
         Self {

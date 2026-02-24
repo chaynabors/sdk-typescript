@@ -150,8 +150,8 @@ impl Runtime {
 }
 
 pub struct Pipeline {
-    id: u64,
-    manifest: PipelineManifest,
+    _id: u64,
+    _manifest: PipelineManifest,
     timeline: Arc<dyn Timeline>,
     plugins: Vec<Arc<Mutex<Box<dyn Plugin>>>>,
     running: AtomicBool,
@@ -167,8 +167,8 @@ impl Pipeline {
         timeline: Arc<dyn Timeline>,
     ) -> Self {
         Self {
-            id,
-            manifest,
+            _id: id,
+            _manifest: manifest,
             timeline,
             plugins: plugins
                 .into_iter()

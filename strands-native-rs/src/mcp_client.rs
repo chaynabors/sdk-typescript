@@ -48,7 +48,7 @@ pub struct McpClientArgs {
 pub struct McpClient {
     name: String,
     version: String,
-    service: RunningService<RoleClient, ()>,
+    _service: RunningService<RoleClient, ()>,
     tool_specs: Vec<ToolSpec>,
 }
 
@@ -81,7 +81,7 @@ impl McpClient {
         Ok(Self {
             name: args.name,
             version: args.version,
-            service,
+            _service: service,
             tool_specs,
         })
     }
@@ -96,7 +96,7 @@ impl std::fmt::Debug for McpClient {
         f.debug_struct("McpClient")
             .field("name", &self.name)
             .field("version", &self.version)
-            .field("service", &"<DynService>")
+            .field("_service", &"<DynService>")
             .finish()
     }
 }

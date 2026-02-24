@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+SCOPES=(
+  mono
+  strands-ts
+  strands-wasm
+  strands-rs
+  strands-py
+  strands-dev
+  strands-derive
+  strands-native
+  filament-core
+  filament-cli
+  filament-sdk
+  strands-metrics
+)
+
+msg=$(head -1 "$1")
+pattern="^\[("$(IFS='|'; echo "${SCOPES[*]}")")\] .+"
+
+if ! [[ "$msg" =~ $pattern ]]; then
+  echo "error: commit message must start with a scope: [scope] message"
+  echo ""
+  echo "valid scopes:"
+  printf "  %s\n" "${SCOPES[@]}"
+  echo ""
+  echo "got: $msg"
+  exit 1
+fi

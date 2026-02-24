@@ -462,7 +462,7 @@ impl crate::plugin::Plugin for WasmPlugin {
     async fn weave(
         &mut self,
         args: WeaveArgs,
-        events: &mut Vec<GuestBoundEvent>,
+        _events: &mut Vec<GuestBoundEvent>,
     ) -> Result<Signal, FilamentError> {
         // Convert WeaveArgs to WASM types (using exports namespace)
         let wasm_args = sys::exports::filament::core::plugin::WeaveArgs {
@@ -528,7 +528,7 @@ impl crate::plugin::Plugin for WasmPlugin {
 
 pub struct WasmModule {
     engine: Engine,
-    uri: String,
+    _uri: String,
     manifest: ModuleManifest,
     component: Component,
 }
@@ -543,12 +543,12 @@ impl Module for WasmModule {
         let mut linker = Linker::<WasmHostState>::new(&self.engine);
         linker.allow_shadowing(true);
 
-        wasmtime_wasi::p2::add_to_linker_async(&mut linker).map_err(|_| FilamentError::NotFound)?;
+        wasmtime_wasi::p2::add_to_linker_async(&mut linker).map_err(|_e| FilamentError::NotFound)?;
         wasmtime_wasi_http::add_to_linker_async(&mut linker)
-            .map_err(|_| FilamentError::NotFound)?;
+            .map_err(|_e| FilamentError::NotFound)?;
 
         sys::Module::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s)
-            .map_err(|_| FilamentError::NotFound)?;
+            .map_err(|_e| FilamentError::NotFound)?;
 
         let mut store = Store::new(
             &self.engine,
@@ -688,7 +688,7 @@ impl Loader for WasmtimeLoader {
 
         Ok(Box::new(WasmModule {
             engine: self.engine.clone(),
-            uri: uri.to_string(),
+            _uri: uri.to_string(),
             manifest,
             component,
         }))

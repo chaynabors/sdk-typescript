@@ -51,7 +51,7 @@ impl Default for AgentArgs<()> {
 pub struct Agent<E> {
     model_provider: Arc<dyn ModelProvider>,
     system_prompt: SystemPrompt,
-    state_provider: Box<dyn StateProvider>,
+    _state_provider: Box<dyn StateProvider>,
     mcp_clients: Arc<Vec<McpClient>>,
     messages: Arc<Mutex<Vec<Message>>>,
     tools: Vec<Box<dyn Tool<E>>>,
@@ -64,7 +64,7 @@ impl<E> Agent<E> {
             system_prompt: args
                 .system_prompt
                 .unwrap_or(SystemPrompt::Text(String::new())),
-            state_provider: args
+            _state_provider: args
                 .state_provider
                 .unwrap_or_else(|| Box::new(HashMap::<String, serde_json::Value>::new())),
             mcp_clients: Arc::new(args.mcp_clients),

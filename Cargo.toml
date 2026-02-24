@@ -5,7 +5,6 @@ members = [
     "filament-core",
     "filament-sdk-rs",
     "strands-derive",
-    "strands-metrics",
     "strands-rs",
     "strands-native-rs",
 ]
@@ -84,7 +83,7 @@ char_lit_as_u8 = "warn"
 checked_conversions = "warn"
 dbg_macro = "warn"
 debug_assert_with_mut_call = "warn"
-empty_enum = "warn"
+empty_enums = "warn"
 enum_glob_use = "warn"
 exit = "warn"
 expl_impl_clone_on_copy = "warn"
@@ -112,7 +111,6 @@ manual_ok_or = "warn"
 map_err_ignore = "warn"
 map_flatten = "warn"
 map_unwrap_or = "warn"
-match_on_vec_items = "warn"
 match_wild_err_arm = "warn"
 match_wildcard_for_single_variants = "warn"
 mem_forget = "warn"
@@ -133,7 +131,6 @@ semicolon_if_nothing_returned = "warn"
 string_add = "warn"
 string_add_assign = "warn"
 string_lit_as_bytes = "warn"
-string_to_string = "warn"
 todo = "warn"
 trait_duplication_in_bounds = "warn"
 unimplemented = "warn"

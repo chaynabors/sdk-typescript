@@ -8,6 +8,7 @@ version.workspace = true
 [features]
 default = []
 pyo3 = ["dep:pyo3", "dep:pyo3-async-runtimes", "dep:tokio", "dep:tracing-subscriber", "pyo3/experimental-inspect"]
+stubs = ["dep:clap", "dep:pyo3-introspection"]
 uniffi = ["dep:uniffi"]
 
 [dependencies]
@@ -24,6 +25,8 @@ tracing-subscriber = { workspace = true, optional = true }
 uniffi = { workspace = true, optional = true }
 wasmtime = { workspace = true, features = ["component-model", "async"] }
 wasmtime-wasi.workspace = true
+clap = { workspace = true, optional = true }
+pyo3-introspection = { workspace = true, optional = true }
 wasmtime-wasi-http.workspace = true
 
 [build-dependencies]
@@ -58,6 +61,10 @@ path = "examples/tools.rs"
 [[example]]
 name = "multi_stream"
 path = "examples/multi_stream.rs"
+
+[[bin]]
+name = "strands-stubs"
+required-features = ["stubs"]
 
 [lints]
 workspace = true

@@ -3,16 +3,25 @@
   "version": "0.0.1",
   "private": true,
   "workspaces": [
+    "strands-dev",
     "strands-ts",
     "strands-wasm",
     "filament-sdk-js",
     "strands-filament"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
-    "build:sdk": "npm run build -w strands-ts",
-    "build:wasm": "npm run build -w strands-wasm",
-    "clean": "npm run clean --workspaces",
-    "postinstall": "rm -rf node_modules/@bytecodealliance/componentize-js && ln -s ../../../../bytecodealliance/ComponentizeJS node_modules/@bytecodealliance/componentize-js"
+    "build": "strands-dev build",
+    "build:ts": "strands-dev build --ts",
+    "build:wasm": "strands-dev build --wasm",
+    "build:rs": "strands-dev build --rs",
+    "build:py": "strands-dev build --py",
+    "test": "strands-dev test",
+    "test:rs": "strands-dev test --rs",
+    "test:py": "strands-dev test --py",
+    "test:ts": "strands-dev test --ts",
+    "check": "strands-dev check",
+    "fmt": "strands-dev fmt",
+    "ci": "strands-dev ci",
+    "clean": "strands-dev clean"
   }
 }

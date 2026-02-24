@@ -9,5 +9,3 @@ version.workspace = true
 [dependencies]
 wit-bindgen.workspace = true
 
-[lints]
-workspace = true
