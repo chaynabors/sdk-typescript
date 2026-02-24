@@ -1,0 +1,123 @@
+# Strands metrics configuration.
+# Run `strands-metrics load-config` to apply changes.
+
+# Goal thresholds shown as lines in Grafana dashboards.
+# direction: "lower_is_better" or "higher_is_better"
+# warning_ratio (optional): defaults to 0.75 / 0.70
+
+[goals.avg_merge_time_hours]
+value = 24
+label = "Goal (24h)"
+direction = "lower_is_better"
+
+[goals.cycle_time_hours]
+value = 336
+label = "Goal (14d)"
+direction = "lower_is_better"
+
+[goals.time_to_first_review_hours]
+value = 72
+label = "Goal (72h)"
+direction = "lower_is_better"
+
+[goals.time_to_first_response_hours]
+value = 24
+label = "Goal (24h)"
+direction = "lower_is_better"
+warning_ratio = 0.75
+
+[goals.ci_failure_rate_percent]
+value = 30
+label = "Goal (30%)"
+direction = "lower_is_better"
+
+[goals.pr_acceptance_rate_min]
+value = 60
+label = "Goal (60%)"
+direction = "higher_is_better"
+
+[goals.community_pr_percent_min]
+value = 20
+label = "Goal (20%)"
+direction = "higher_is_better"
+warning_ratio = 0.70
+
+[goals.contributor_retention_min]
+value = 25
+label = "Goal (25%)"
+direction = "higher_is_better"
+
+[goals.stale_prs_max]
+value = 15
+label = "Goal (<15)"
+direction = "lower_is_better"
+warning_ratio = 0.33
+
+# Repo-to-package mappings for download tracking.
+
+[[repo_mappings]]
+repo = "sdk-python"
+package = "strands-agents"
+registry = "pypi"
+
+[[repo_mappings]]
+repo = "sdk-typescript"
+package = "@strands-agents/sdk"
+registry = "npm"
+
+[[repo_mappings]]
+repo = "tools"
+package = "strands-agents-tools"
+registry = "pypi"
+
+[[repo_mappings]]
+repo = "agent-sop"
+package = "strands-agents-sops"
+registry = "pypi"
+
+[[repo_mappings]]
+repo = "agent-builder"
+package = "strands-agents-builder"
+registry = "pypi"
+
+[[repo_mappings]]
+repo = "evals"
+package = "strands-agents-evals"
+registry = "pypi"
+
+[[repo_mappings]]
+repo = "mcp-server"
+package = "strands-agents-mcp-server"
+registry = "pypi"
+
+# Team members for the Team Dashboard.
+
+[[members]]
+username = "afarntrog"
+
+[[members]]
+username = "lizradway"
+
+[[members]]
+username = "JackYPCOnline"
+
+[[members]]
+username = "dbschmigelski"
+
+[[members]]
+username = "zastrowm"
+
+[[members]]
+username = "mehtarac"
+
+[[members]]
+username = "mkmeral"
+
+[[members]]
+username = "Unshure"
+
+[[members]]
+username = "pgrayy"
+
+[[members]]
+username = "poshinchen"

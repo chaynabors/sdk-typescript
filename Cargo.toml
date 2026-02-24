@@ -5,6 +5,7 @@ members = [
     "filament-core",
     "filament-sdk-rs",
     "strands-derive",
+    "strands-metrics",
     "strands-rs",
     "strands-native-rs",
 ]

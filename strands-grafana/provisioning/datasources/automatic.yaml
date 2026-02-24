@@ -6,5 +6,5 @@ datasources:
     access: proxy
     isDefault: true
     jsonData:
-      path: /var/lib/grafana/metrics.db
+      path: /mnt/data/metrics.db
       mode: ro

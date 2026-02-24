@@ -28,3 +28,5 @@ demo/
 
 # Misc
 *.log
+*.backup
+strands-grafana/provisioning/dashboards/metrics.db

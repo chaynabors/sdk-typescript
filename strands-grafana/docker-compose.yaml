@@ -6,7 +6,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./../metrics.db:/var/lib/grafana/metrics.db:ro
+      - ./../metrics.db:/mnt/data/metrics.db:ro
       - ./provisioning/datasources:/etc/grafana/provisioning/datasources
       - ./provisioning/dashboards:/etc/grafana/provisioning/dashboards
     environment:

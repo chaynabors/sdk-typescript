@@ -1,6 +1,6 @@
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
-use rusqlite::{Connection, params};
+use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+use rusqlite::{params, Connection};
 
 pub fn compute_metrics(conn: &Connection) -> Result<()> {
     // Smart detect of dirty window
@@ -9,9 +9,9 @@ pub fn compute_metrics(conn: &Connection) -> Result<()> {
         .ok();
 
     let start_date = match last_metric_date {
-        Some(d) => DateTime::parse_from_str(&d, "%Y-%m-%d").map_or_else(
+        Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_or_else(
             |_| Utc::now(),
-            |dt| dt.with_timezone(&Utc) - Duration::days(3),
+            |nd| Utc.from_utc_datetime(&nd.and_hms_opt(0, 0, 0).unwrap()) - Duration::days(3),
         ),
         None => DateTime::parse_from_rfc3339("2010-01-01T00:00:00Z")
             .unwrap()
