@@ -332,6 +332,10 @@ pub mod _strands {
     #[pymodule_export]
     use super::StreamHandle;
     #[pymodule_export]
+    use crate::LifecycleEvent_;
+    #[pymodule_export]
+    use crate::LifecycleEventType_;
+    #[pymodule_export]
     use crate::MetadataEvent_;
     #[pymodule_export]
     use crate::Metrics_;

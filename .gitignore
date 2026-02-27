@@ -1,32 +1,23 @@
-.DS_Store
-target/
-
-# Rust
-**/*.rs.bk
-*.pdb
-**/mutants.out*/
-
-# Node
-node_modules/
-dist/
-
-# Python
-.venv/
 __pycache__/
-*.so
-*.dylib
-*.pyd
-*.egg-info/
+.DS_Store
+.pycache/
 .pytest_cache/
 .ruff_cache/
-
-# Bytecode prefix dir
-.pycache/
-
-# Demo
-demo/
-
-# Misc
-*.log
+.venv/
 *.backup
-strands-grafana/provisioning/dashboards/metrics.db
+*.dylib
+*.egg-info/
+*.log
+*.pdb
+*.pyd
+*.so
+**/*.rs.bk
+**/mutants.out*/
+.gradle/
+bin/
+build/
+strands-kt/lib/src/main/kotlin/uniffi/
+demo/
+dist/
+node_modules/
+target/

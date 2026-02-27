@@ -5,7 +5,6 @@ Collaborative agent orchestration where agents work together as a team.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -87,7 +86,6 @@ class Swarm(MultiAgentBase):
             result.results[nid] = node_result
             result.node_history.append(type("_Node", (), {"node_id": nid})())
 
-        completed = sum(1 for r in result.results.values() if r.status == Status.COMPLETED)
         failed = sum(1 for r in result.results.values() if r.status == Status.FAILED)
 
         result.status = Status.FAILED if failed > 0 else Status.COMPLETED

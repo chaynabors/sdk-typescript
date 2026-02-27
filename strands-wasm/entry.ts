@@ -87,7 +87,6 @@ function mapEvent(event: AgentStreamEvent): StreamEvent | null {
   }
 
   if (!('type' in event)) {
-    glog('trace', 'mapEvent: skipping event without type', { keys: Object.keys(event) });
     return null;
   }
 
@@ -116,7 +115,6 @@ function mapEvent(event: AgentStreamEvent): StreamEvent | null {
   if (ev.type === 'toolUseBlock' || (ev.type === 'modelContentBlockStartEvent' && ev.contentBlock?.type === 'tool_use')) {
     const block = ev.type === 'toolUseBlock' ? ev : ev.contentBlock;
     if (block?.name) {
-      glog('debug', 'mapEvent: tool-use', { name: block.name, toolUseId: block.id ?? block.toolUseId });
       return {
         tag: 'tool-use',
         val: {
@@ -129,7 +127,6 @@ function mapEvent(event: AgentStreamEvent): StreamEvent | null {
   }
 
   if (ev.type === 'toolResultBlock') {
-    glog('debug', 'mapEvent: tool-result', { toolUseId: ev.toolUseId, status: ev.status });
     return {
       tag: 'tool-result',
       val: {
@@ -155,7 +152,6 @@ function mapEvent(event: AgentStreamEvent): StreamEvent | null {
     return { tag: 'metadata', val: { usage: mapUsage(ev.usage), metrics: mapMetrics(ev.metrics) } };
   }
 
-  glog('debug', 'mapEvent: unhandled event type', { type: ev.type });
   return null;
 }
 
@@ -242,7 +238,6 @@ function createTools(specs: ToolSpec[] | undefined): FunctionTool[] | undefined 
         inputSchema: JSON.parse(spec.inputSchema),
         callback: (input: unknown, toolContext: any) => {
           const toolUseId = toolContext?.toolUse?.toolUseId ?? '';
-          glog('debug', 'callTool: dispatching', { name: spec.name, toolUseId });
 
           let result: any;
           try {
@@ -266,8 +261,6 @@ function createTools(specs: ToolSpec[] | undefined): FunctionTool[] | undefined 
           } else {
             parsed = JSON.parse(result);
           }
-
-          glog('debug', 'callTool: returned', { tool: spec.name, hasStatus: 'status' in (parsed ?? {}) });
 
           // Return just the content if it's a wrapped tool result.
           // The TS SDK expects content blocks, not the {status, content} wrapper.
@@ -315,34 +308,31 @@ import {
 class LifecycleBridge implements HookProvider {
   queue: StreamEvent[] = [];
 
-  private pushEvent(payload: Record<string, unknown>): void {
-    this.queue.push({ tag: 'lifecycle', val: JSON.stringify(payload) } as any);
+  private push(eventType: string, toolUse?: unknown, toolResult?: unknown): void {
+    this.queue.push({
+      tag: 'lifecycle',
+      val: {
+        eventType,
+        toolUse: toolUse ? JSON.stringify(toolUse) : undefined,
+        toolResult: toolResult ? JSON.stringify(toolResult) : undefined,
+      },
+    } as any);
   }
 
   registerCallbacks(registry: HookRegistry): void {
-    const push = (type: string) => () => this.pushEvent({ type });
+    registry.addCallback(InitializedEvent, () => this.push('initialized'));
+    registry.addCallback(BeforeInvocationEvent, () => this.push('before-invocation'));
+    registry.addCallback(AfterInvocationEvent, () => this.push('after-invocation'));
+    registry.addCallback(BeforeModelCallEvent, () => this.push('before-model-call'));
+    registry.addCallback(AfterModelCallEvent, () => this.push('after-model-call'));
+    registry.addCallback(MessageAddedEvent, () => this.push('message-added'));
 
-    registry.addCallback(InitializedEvent, push('agentInitializedEvent'));
-    registry.addCallback(BeforeInvocationEvent, push('beforeInvocationEvent'));
-    registry.addCallback(AfterInvocationEvent, push('afterInvocationEvent'));
-    registry.addCallback(BeforeModelCallEvent, push('beforeModelCallEvent'));
-    registry.addCallback(AfterModelCallEvent, push('afterModelCallEvent'));
-    registry.addCallback(MessageAddedEvent, push('messageAddedEvent'));
-
-    // Tool events carry payload so the host can reconstruct full hook event data.
     registry.addCallback(BeforeToolCallEvent, (event: InstanceType<typeof BeforeToolCallEvent>) => {
-      this.pushEvent({
-        type: 'beforeToolCallEvent',
-        toolUse: event.toolUse,
-      });
+      this.push('before-tool-call', event.toolUse);
     });
 
     registry.addCallback(AfterToolCallEvent, (event: InstanceType<typeof AfterToolCallEvent>) => {
-      this.pushEvent({
-        type: 'afterToolCallEvent',
-        toolUse: event.toolUse,
-        result: event.result,
-      });
+      this.push('after-tool-call', event.toolUse, event.result as unknown);
     });
   }
 

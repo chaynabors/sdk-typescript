@@ -4,10 +4,11 @@ export interface CheckOptions {
   rs?: boolean;
   ts?: boolean;
   py?: boolean;
+  kt?: boolean;
 }
 
 export async function check(opts?: CheckOptions): Promise<void> {
-  const all = !opts?.rs && !opts?.ts && !opts?.py;
+  const all = !opts?.rs && !opts?.ts && !opts?.py && !opts?.kt;
 
   if (all || opts?.rs) {
     run("cargo clippy --workspace -- -D warnings");
@@ -22,5 +23,9 @@ export async function check(opts?: CheckOptions): Promise<void> {
 
   if (all || opts?.ts) {
     run("npm run type-check --workspaces --if-present");
+  }
+
+  if (all || opts?.kt) {
+    run(`./strands-kt/gradlew -p strands-kt :lib:compileKotlin :examples-kt:compileKotlin :examples-java:compileJava`);
   }
 }

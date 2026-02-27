@@ -58,24 +58,51 @@ def _safe_json_loads(s: str | None, default: Any = None) -> Any:
 
 
 _LIFECYCLE_EVENT_MAP: dict[str, type] = {
-    "initializedEvent": AgentInitializedEvent,
-    "agentInitializedEvent": AgentInitializedEvent,
-    "beforeInvocationEvent": BeforeInvocationEvent,
-    "afterInvocationEvent": AfterInvocationEvent,
-    "beforeModelCallEvent": BeforeModelCallEvent,
-    "afterModelCallEvent": AfterModelCallEvent,
-    "beforeToolCallEvent": BeforeToolCallEvent,
-    "afterToolCallEvent": AfterToolCallEvent,
-    "messageAddedEvent": MessageAddedEvent,
+    "initialized": AgentInitializedEvent,
+    "before-invocation": BeforeInvocationEvent,
+    "after-invocation": AfterInvocationEvent,
+    "before-model-call": BeforeModelCallEvent,
+    "after-model-call": AfterModelCallEvent,
+    "before-tool-call": BeforeToolCallEvent,
+    "after-tool-call": AfterToolCallEvent,
+    "message-added": MessageAddedEvent,
 }
 
 
-def lifecycle_event_from_json(payload: str) -> object | None:
-    """Parse a lifecycle JSON payload into a hook event instance, or None.
+def lifecycle_event_from_wit(lifecycle: Any) -> object | None:
+    """Convert a structured WIT LifecycleEvent into a hook event instance, or None.
 
-    Tool events carry extra data (toolUse, result) which is injected into the
-    event instance so the host-side hooks see the same context the guest had.
+    The lifecycle object has: event_type (WIT enum), tool_use (optional JSON string),
+    result (optional JSON string).
     """
+    event_type = lifecycle.event_type
+    if event_type is None:
+        return None
+
+    # The WIT enum comes through PyO3 as an object with a .value string attribute.
+    type_str = event_type.value if hasattr(event_type, "value") else str(event_type)
+    cls = _LIFECYCLE_EVENT_MAP.get(type_str)
+    if cls is None:
+        return None
+    event = cls()
+
+    if type_str == "before-tool-call":
+        tool_use = _safe_json_loads(lifecycle.tool_use)
+        if tool_use and hasattr(event, "tool_use"):
+            event.tool_use = tool_use
+    elif type_str == "after-tool-call":
+        tool_use = _safe_json_loads(lifecycle.tool_use)
+        result = _safe_json_loads(lifecycle.tool_result)
+        if tool_use and hasattr(event, "tool_use"):
+            event.tool_use = tool_use
+        if result and hasattr(event, "result"):
+            event.result = result
+
+    return event
+
+
+def lifecycle_event_from_json(payload: str) -> object | None:
+    """Legacy: parse a lifecycle JSON payload. Kept for backward compatibility."""
     data = _safe_json_loads(payload)
     if not isinstance(data, dict):
         return None
@@ -86,12 +113,11 @@ def lifecycle_event_from_json(payload: str) -> object | None:
         return None
     event = cls()
 
-    # Populate tool context from bridge payload
-    if event_type == "beforeToolCallEvent":
+    if event_type == "before-tool-call":
         tool_use = d.get("toolUse")
         if tool_use and hasattr(event, "tool_use"):
             event.tool_use = tool_use
-    elif event_type == "afterToolCallEvent":
+    elif event_type == "after-tool-call":
         tool_use = d.get("toolUse")
         result = d.get("result")
         if tool_use and hasattr(event, "tool_use"):

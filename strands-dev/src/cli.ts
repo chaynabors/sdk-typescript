@@ -50,6 +50,7 @@ program
   .option("--wasm", "WASM component (rebuilds TS first)")
   .option("--rs", "Rust host")
   .option("--py", "Python extension and type stubs")
+  .option("--kt", "Kotlin/Java SDK (UniFFI bindings + Gradle)")
   .option("--release", "Release build")
   .action((opts) => build(opts));
 
@@ -59,6 +60,7 @@ program
   .option("--rs", "Rust tests")
   .option("--py", "Python tests")
   .option("--ts", "TypeScript tests")
+  .option("--kt", "Kotlin/Java tests")
   .argument("[file]", "Specific Python test file")
   .action((file, opts) => test({ ...opts, file }));
 
@@ -68,6 +70,7 @@ program
   .option("--rs", "Rust clippy (workspace and pyo3)")
   .option("--ts", "TypeScript type-check")
   .option("--py", "Python ruff")
+  .option("--kt", "Kotlin/Java compile check")
   .action((opts) => check(opts));
 
 program
@@ -86,7 +89,9 @@ program
   .command("example")
   .description("Run an example by name")
   .argument("<name>", "Example name")
-  .option("--py", "Run a Python example instead of Rust")
+  .option("--py", "Run a Python example")
+  .option("--kt", "Run the Kotlin example")
+  .option("--java", "Run the Java example")
   .action((name, opts) => example(name, opts));
 
 program

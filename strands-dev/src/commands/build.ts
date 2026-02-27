@@ -7,6 +7,7 @@ export interface BuildOptions {
   wasm?: boolean;
   rs?: boolean;
   py?: boolean;
+  kt?: boolean;
   release?: boolean;
 }
 
@@ -50,7 +51,7 @@ function ensureComponentizeJsSymlink(): void {
 }
 
 export async function build(opts?: BuildOptions): Promise<void> {
-  const all = !opts?.ts && !opts?.wasm && !opts?.rs && !opts?.py;
+  const all = !opts?.ts && !opts?.wasm && !opts?.rs && !opts?.py && !opts?.kt;
 
   if (all || opts?.ts) {
     run("npm run build -w strands-ts");
@@ -67,6 +68,17 @@ export async function build(opts?: BuildOptions): Promise<void> {
   if (all || opts?.rs) {
     const releaseFlag = opts?.release ? " --release" : "";
     run(`cargo build -p strands${releaseFlag}`);
+  }
+
+  if (all || opts?.kt) {
+    const releaseFlag = opts?.release ? " --release" : "";
+    const profile = opts?.release ? "release" : "debug";
+    const ext = process.platform === "win32" ? "dll" : process.platform === "darwin" ? "dylib" : "so";
+    const libName = process.platform === "win32" ? `strands.${ext}` : `libstrands.${ext}`;
+    run(`cargo rustc -p strands --features uniffi --crate-type cdylib${releaseFlag}`);
+    run(`rm -f strands-kt/lib/src/main/kotlin/uniffi/strands/strands.kt`);
+    run(`cargo run -p uniffi-bindgen -- generate --library target/${profile}/${libName} --language kotlin --out-dir strands-kt/lib/src/main/kotlin/ --no-format`);
+    run(`./strands-kt/gradlew -p strands-kt :lib:compileKotlin :examples-kt:compileKotlin :examples-java:compileJava`);
   }
 
   if (all || opts?.py) {

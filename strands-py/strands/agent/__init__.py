@@ -12,7 +12,7 @@ from strands._conversions import (
     event_from_pyo3,
     event_to_dict,
     flatten_pydantic_schema,
-    lifecycle_event_from_json,
+    lifecycle_event_from_wit,
     resolve_model,
     stop_reason_to_snake,
 )
@@ -416,8 +416,6 @@ class Agent:
         result = StreamResult()
         tool_metrics: list[dict[str, Any]] = []
         pending_tool_start: dict[str, float] = {}
-        current_tool_use: dict[str, Any] = {}
-        current_tool_result: dict[str, Any] = {}
 
         stream = await self._rust_agent.start_stream(
             prompt, tools=tools, tool_choice=tool_choice,
@@ -429,7 +427,7 @@ class Agent:
                     break
                 for raw_event in batch:
                     if raw_event.kind == "lifecycle":
-                        hook_event = lifecycle_event_from_json(raw_event.lifecycle or "")
+                        hook_event = lifecycle_event_from_wit(raw_event.lifecycle)
                         if hook_event is not None:
                             # For AfterToolCallEvent: merge handler-captured result
                             # (has MCP structuredContent/metadata) with bridge data
@@ -462,23 +460,10 @@ class Agent:
                     elif isinstance(event, StreamEvent_ToolUse):
                         pending_tool_start[event.value.tool_use_id] = _time.monotonic()
                         pending_tool_start[f"{event.value.tool_use_id}:name"] = event.value.name
-                        current_tool_use = {
-                            "name": event.value.name,
-                            "toolUseId": event.value.tool_use_id,
-                        }
 
                     elif isinstance(event, StreamEvent_ToolResult):
                         tid = event.value.tool_use_id
                         tool_name = pending_tool_start.pop(f"{tid}:name", "")
-                        try:
-                            content = json.loads(event.value.content) if isinstance(event.value.content, str) else event.value.content
-                        except (json.JSONDecodeError, TypeError):
-                            content = [{"text": str(event.value.content)}]
-                        current_tool_result = {
-                            "toolUseId": tid,
-                            "status": event.value.status,
-                            "content": content,
-                        }
                         if tid in pending_tool_start:
                             duration = _time.monotonic() - pending_tool_start.pop(tid)
                             tool_metrics.append({
@@ -649,7 +634,7 @@ class Agent:
                     break
                 for event in batch:
                     if event.kind == "lifecycle":
-                        hook_event = lifecycle_event_from_json(event.lifecycle or "")
+                        hook_event = lifecycle_event_from_wit(event.lifecycle)
                         if hook_event is not None:
                             await self.hooks.fire_async(hook_event)
                         continue

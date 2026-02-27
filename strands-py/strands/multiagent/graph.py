@@ -5,7 +5,6 @@ Provides GraphBuilder for constructing agent graphs and Graph for executing them
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import logging
 import time
@@ -14,7 +13,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from strands.hooks import BeforeNodeCallEvent, HookProvider, HookRegistry
-from strands.interrupt import Interrupt
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)

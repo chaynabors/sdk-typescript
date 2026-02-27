@@ -3,6 +3,7 @@ from dataclasses import fields as dc_fields
 from typing import Any
 
 from strands.generated.wit_world.imports.types import BedrockConfig, ModelParams
+from strands.models.model import Model
 
 _CONFIG_FIELDS = {f.name for f in dc_fields(BedrockConfig)}
 _PARAM_FIELDS = {f.name for f in dc_fields(ModelParams)}
@@ -10,9 +11,6 @@ _KNOWN_FIELDS = _CONFIG_FIELDS | _PARAM_FIELDS
 
 # Fields that are not JSON-serializable and must be handled specially.
 _NON_SERIALIZABLE = {"boto_session"}
-
-
-from strands.models.model import Model
 
 
 class BedrockModel(Model):

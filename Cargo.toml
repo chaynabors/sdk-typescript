@@ -8,6 +8,7 @@ members = [
     "strands-metrics",
     "strands-rs",
     "strands-native-rs",
+    "uniffi-bindgen",
 ]
 
 [workspace.package]

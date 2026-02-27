@@ -2,6 +2,8 @@ import { run, ROOT } from "../run.js";
 
 export interface ExampleOptions {
   py?: boolean;
+  kt?: boolean;
+  java?: boolean;
 }
 
 export async function example(
@@ -12,6 +14,10 @@ export async function example(
     run(`.venv/bin/python examples/${name}.py`, {
       cwd: `${ROOT}/strands-py`,
     });
+  } else if (opts?.kt) {
+    run(`./strands-kt/gradlew -p strands-kt :examples-kt:run`);
+  } else if (opts?.java) {
+    run(`./strands-kt/gradlew -p strands-kt :examples-java:run`);
   } else {
     run(`cargo run -p strands --example ${name}`);
   }

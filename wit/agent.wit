@@ -54,6 +54,23 @@ interface types {
     metrics: option<metrics>,
   }
 
+  enum lifecycle-event-type {
+    initialized,
+    before-invocation,
+    after-invocation,
+    before-model-call,
+    after-model-call,
+    before-tool-call,
+    after-tool-call,
+    message-added,
+  }
+
+  record lifecycle-event {
+    event-type: lifecycle-event-type,
+    tool-use: option<string>,
+    tool-result: option<string>,
+  }
+
   variant stream-event {
     text-delta(string),
     tool-use(tool-use-event),
@@ -62,7 +79,7 @@ interface types {
     stop(stop-data),
     error(string),
     interrupt(string),
-    lifecycle(string),
+    lifecycle(lifecycle-event),
   }
 
   record anthropic-config {
