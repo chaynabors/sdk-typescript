@@ -8,9 +8,6 @@ SCOPES=(
   strands-dev
   strands-derive
   strands-native
-  filament-core
-  filament-cli
-  filament-sdk
   strands-metrics
 )
 

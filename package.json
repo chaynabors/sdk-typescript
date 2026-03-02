@@ -5,9 +5,7 @@
   "workspaces": [
     "strands-dev",
     "strands-ts",
-    "strands-wasm",
-    "filament-sdk-js",
-    "strands-filament"
+    "strands-wasm"
   ],
   "scripts": {
     "build": "strands-dev build",
