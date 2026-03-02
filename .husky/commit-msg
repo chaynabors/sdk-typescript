@@ -1,5 +1,6 @@
 SCOPES=(
   mono
+  meta
   strands-ts
   strands-wasm
   strands-rs
