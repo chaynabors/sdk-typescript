@@ -7,7 +7,6 @@ SCOPES=(
   strands-py
   strands-dev
   strands-derive
-  strands-native
   strands-metrics
 )
 

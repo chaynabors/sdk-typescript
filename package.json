@@ -8,19 +8,7 @@
     "strands-wasm"
   ],
   "scripts": {
-    "build": "strands-dev build",
-    "build:ts": "strands-dev build --ts",
-    "build:wasm": "strands-dev build --wasm",
-    "build:rs": "strands-dev build --rs",
-    "build:py": "strands-dev build --py",
-    "test": "strands-dev test",
-    "test:rs": "strands-dev test --rs",
-    "test:py": "strands-dev test --py",
-    "test:ts": "strands-dev test --ts",
-    "check": "strands-dev check",
-    "fmt": "strands-dev fmt",
-    "ci": "strands-dev ci",
-    "clean": "strands-dev clean",
+    "dev": "strands-dev",
     "prepare": "husky"
   },
   "devDependencies": {
