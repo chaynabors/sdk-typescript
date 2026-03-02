@@ -17,7 +17,7 @@
 
 ## Executive summary
 
-Today the Strands team maintains two SDKs: Python and TypeScript. Each is an independent implementation of the entire agent runtime, written from scratch. The Python SDK is ~65,670 LOC (source + unit tests + integration tests). [[A]](#appendix-a-line-counts) A TypeScript SDK at parity, with equivalent tests, would be roughly the same. Together that is ~131,340 LOC for two languages that do the same thing.
+Today the Strands team maintains two SDKs: Python and TypeScript. Each is an independent implementation of the entire agent runtime, written from scratch. The Python SDK is ~65,670 LOC across source, unit tests, and integration tests. [[A]](#appendix-a-line-counts) A TypeScript SDK at parity, with equivalent tests, would be roughly the same. Together that is ~131,340 LOC for two languages that do the same thing.
 
 Every feature must be implemented, tested, and fixed independently in both. When a model provider changes its API, the team splits to update both codebases. When a bug is found in the event loop, it gets patched twice, and each patch can introduce its own new bugs. The SDKs already drift. 42% of the Python SDK has no TypeScript equivalent today. [[C]](#appendix-c-discrepancy-analysis)
 
@@ -72,7 +72,7 @@ All types are defined in the `types` interface, including stream event variants,
 
 ### The TypeScript SDK (strands-ts/)
 
-The TypeScript SDK is the existing Strands SDK for TypeScript. It already ships as its own npm package, has its own test suite (17,247 lines of unit tests [[A]](#appendix-a-line-counts)), and is used directly by TypeScript developers. It is the production TypeScript SDK that also serves as the shared implementation inside the WASM component.
+The TypeScript SDK is the existing Strands SDK for TypeScript. It already ships as its own npm package, has 17,247 lines of unit tests [[A]](#appendix-a-line-counts), and is used directly by TypeScript developers. It is the production TypeScript SDK that also serves as the shared implementation inside the WASM component.
 
 This is the key design choice. Rather than writing a purpose-built WASM runtime, we compile the real SDK. The TypeScript SDK already runs natively in the browser, in Node, and now inside WASM. It works in every environment we intend to support without requiring a translation layer. Every bug fix and feature that lands in the TypeScript SDK for its own users automatically benefits Python, Swift, and every other language wrapper. The team maintains one SDK, and the polyglot architecture rides on top.
 
@@ -84,11 +84,11 @@ The bridge adapts the TypeScript SDK to the WIT contract. It is a single file, `
 
 When the host calls `agent.generate()`, the bridge translates WIT config into SDK objects, starts the SDK's agent, and wraps its async event stream in a `response-stream` resource. When the host calls `read-next()`, the bridge pulls the next event from the SDK, maps it to a WIT stream-event variant, and returns it. When the SDK needs to call a tool, the bridge routes the call back through the WIT `call-tool` import to the host.
 
-A build script (`build.js`, 70 lines) bundles the bridge with the full TS SDK into a single ESM file via esbuild, then compiles it into a WASM component targeting the `agent` WIT world.
+A 70-line build script bundles the bridge with the full TS SDK into a single ESM file via esbuild, then compiles it into a WASM component targeting the `agent` WIT world.
 
 ### The Rust host (strands-rs/)
 
-The WASM component can't make HTTP calls on its own because it runs in a sandbox. It needs a host that provides WASI HTTP so the TypeScript SDK inside can reach model provider APIs. The wasmtime C API doesn't expose WASI HTTP, so we can't host the component from Python or other languages via C bindings directly. The component also bundles a JavaScript runtime that would take seconds to JIT-compile on every startup.
+The WASM component runs in a sandbox and cannot make HTTP calls on its own. It needs a host process that provides WASI HTTP so the TypeScript SDK inside can reach model provider APIs. In principle, any language could be the host. In practice, the wasmtime C API does not expose WASI HTTP, which rules out hosting from Python, Kotlin, or other languages via C bindings. Only the Rust crate `wasmtime-wasi-http` provides this. The component also bundles a JavaScript runtime that would take seconds to JIT-compile on every startup without AOT compilation, which is also only available from the Rust API.
 
 The Rust host addresses both. The `wasmtime-wasi-http` crate provides the HTTP networking the sandbox needs, and the Rust build system AOT-compiles the WASM component at `cargo build` time, producing native machine code that the runtime loads in milliseconds. The host is both a standalone Rust SDK and the foundation for language bindings via PyO3 for Python and UniFFI for Swift and Kotlin.
 
@@ -115,13 +115,13 @@ This is the same API as the upstream Strands Python SDK. A user switching from t
 
 Under the hood, `Agent.__init__` constructs the Rust agent via PyO3 with model config and tool specs. `Agent.__call__` starts a WASM stream and pulls events in a loop. Text deltas are accumulated, tool-use events dispatch to the Python tool handler, lifecycle events fire Python hook callbacks. The `@tool` decorator inspects type hints and docstrings to generate JSON schemas, then wraps the function in a handler that bridges JSON across the FFI boundary.
 
-The wrapper is 3,078 lines of hand-written Python (4,700 including sanity integration tests) with zero runtime dependencies because everything is bundled in the native binary. [[A]](#appendix-a-line-counts) It reuses the upstream Python SDK's integration test suite unmodified. 54 of 106 tests pass today. [[G]](#appendix-g-test-status)
+The wrapper is 3,078 lines of hand-written Python, 4,700 including sanity integration tests, with zero runtime dependencies because everything is bundled in the native binary. [[A]](#appendix-a-line-counts) It reuses the upstream Python SDK's integration test suite unmodified. 54 of 106 tests pass today. [[G]](#appendix-g-test-status)
 
 ### Adding a new language
 
 A Swift wrapper would follow the same pattern as the Python wrapper. An idiomatic `Agent` class, type conversions between WIT types and Swift types, a tool builder using Swift idioms, and model config wrappers. The entire agent runtime already exists in the TypeScript SDK inside the WASM component and would not be reimplemented.
 
-Based on the Python wrapper's breakdown, a new language wrapper is roughly 1,400 lines of glue (API surface, type conversions, tool builder, config wrappers). The Rust host's UniFFI feature generates the FFI bindings automatically. The WIT contract guarantees type compatibility at compile time.
+Based on the Python wrapper's breakdown, a new language wrapper is roughly 1,400 lines of glue: API surface, type conversions, tool builder, and config wrappers. The Rust host's UniFFI feature generates the FFI bindings automatically. The WIT contract guarantees type compatibility at compile time.
 
 > Note: After writing this doc, I implemented Strands in Kotlin, providing support for both Java and Kotlin at the same time. This projection was accurate.
 
@@ -137,7 +137,7 @@ Based on the Python wrapper's breakdown, a new language wrapper is roughly 1,400
 ### Caveats
 
 - **35% larger on disk** (96 MB vs 71 MB), but bundled as 1 package with zero runtime dependencies vs 49 packages. [[E]](#appendix-e-on-disk-size-analysis)
-- **42% of the Python SDK source has no TypeScript equivalent**, including 7 model providers, experimental features (bidi, steering), and OTel telemetry. Some of this is needed for parity; some may not be. [[C]](#appendix-c-discrepancy-analysis)
+- **42% of the Python SDK source has no TypeScript equivalent**, including 7 model providers, experimental features like bidi and steering, and OTel telemetry. Some of this is needed for parity; some may not be. [[C]](#appendix-c-discrepancy-analysis)
 
 ## Summary
 
@@ -168,6 +168,14 @@ Rust is required because the wasmtime C API does not expose WASI HTTP, and becau
 > This is a ballpark estimate, not a commitment. The team has to agree on an approach before we can commit to timelines.
 
 Roughly 14-18 person-weeks to reach full feature parity, pass all upstream integration tests, and release Python + TypeScript 2.0. With 3-4 engineers that is 6-8 calendar weeks. Beyond 4 engineers the gains are marginal because the remaining work has dependencies between layers. [[H]](#appendix-h-delivery-estimate)
+
+**Can model providers be defined in the host language?**
+
+Not today. All model providers currently run inside the WASM component via the TypeScript SDK. A host-side model provider interface is architecturally possible by adding a WIT import that the guest calls when it needs to invoke a model, similar to how `tool-provider` works for tools. This is a decision point for the team: host-side providers would let users write custom providers in Python or Kotlin, but they add a new cross-boundary protocol and the performance characteristics change. The current approach keeps model logic in one place.
+
+**What about async?**
+
+The Python wrapper supports async natively. `invoke_async`, `stream_async`, and structured output all return Python awaitables backed by Rust futures via PyO3. The limitation is one concurrent stream per agent instance. The Rust host holds a mutex on the WASM store, so a single agent cannot run multiple invocations in parallel. Multiple agent instances can run concurrently on separate threads. This matches the upstream Python SDK's concurrency model.
 
 **How do you debug across the WASM boundary?**
 

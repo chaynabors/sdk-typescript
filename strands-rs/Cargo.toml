@@ -40,8 +40,8 @@ tokio-stream.workspace = true
 tracing-subscriber = { workspace = true }
 
 [[example]]
-name = "basic_agent"
-path = "examples/basic_agent.rs"
+name = "calculator"
+path = "examples/calculator.rs"
 
 [[bin]]
 name = "strands-stubs"

@@ -90,6 +90,7 @@ program
   .description("Run an example by name")
   .argument("<name>", "Example name")
   .option("--py", "Run a Python example")
+  .option("--ts", "Run a TypeScript example")
   .option("--kt", "Run the Kotlin example")
   .option("--java", "Run the Java example")
   .action((name, opts) => example(name, opts));

@@ -1,7 +1,7 @@
-//! Basic agent example — calculator tool with the default Bedrock model.
+//! Calculator example — tool use with the default Bedrock model.
 //!
 //! Usage:
-//!   cargo run --example basic_agent
+//!   cargo run --example calculator
 
 use anyhow::Result;
 use strands::{Agent, StreamEvent};
