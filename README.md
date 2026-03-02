@@ -40,12 +40,6 @@ graph TD
     RS -->|UniFFI| KT[strands-kt]
 ```
 
-```mermaid
-graph LR
-    WIT[wit/agent.wit] --> TS[strands-ts] --> WASM[strands-wasm] --> RS[strands-rs] --> PY[strands-py]
-    RS --> KT[strands-kt]
-```
-
 | Package             | Language   | Role                                                                 |
 | ------------------- | ---------- | -------------------------------------------------------------------- |
 | **wit/**            | WIT        | Agent interface contract and single source of truth                  |
