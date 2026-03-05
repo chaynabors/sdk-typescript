@@ -6,7 +6,6 @@ import {
   type ContentBlockData,
   Message,
   type MessageData,
-  type StopReason,
   type SystemPrompt,
   type SystemPromptData,
   TextBlock,
@@ -690,7 +689,12 @@ export class Agent implements AgentData {
         return yield* this.invokeModel(args)
       }
 
-      return { message, stopReason, metadata, redactionMessage }
+      return {
+        message,
+        stopReason,
+        ...(metadata && { metadata }),
+        ...(redactionMessage && { redactionMessage }),
+      }
     } catch (error) {
       const modelError = normalizeError(error)
 
