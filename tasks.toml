@@ -222,6 +222,13 @@ notes = "TS emits trace events, host routes to language OTel SDK. ~800-1,200 TS 
 # Done
 # ============================================================================
 
+[infrastructure.extract-metrics]
+title = "Move strands-metrics and strands-grafana to own repo"
+status = "done"
+size = "s"
+author = "chaynabors"
+notes = "Metrics dashboards and Grafana config don't belong in the SDK monorepo."
+
 [mono.wit-contract]
 title = "WIT contract design"
 status = "done"
