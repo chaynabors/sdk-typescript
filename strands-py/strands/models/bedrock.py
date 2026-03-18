@@ -1,12 +1,10 @@
 import json
-from dataclasses import fields as dc_fields
 from typing import Any
 
-from strands.generated.wit_world.imports.types import BedrockConfig, ModelParams
 from strands.models.model import Model
 
-_CONFIG_FIELDS = {f.name for f in dc_fields(BedrockConfig)}
-_PARAM_FIELDS = {f.name for f in dc_fields(ModelParams)}
+_CONFIG_FIELDS = {"model_id", "region", "access_key_id", "secret_access_key", "session_token"}
+_PARAM_FIELDS = {"max_tokens", "temperature", "top_p"}
 _KNOWN_FIELDS = _CONFIG_FIELDS | _PARAM_FIELDS
 
 # Fields that are not JSON-serializable and must be handled specially.

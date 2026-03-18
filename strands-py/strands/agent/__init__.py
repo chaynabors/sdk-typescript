@@ -9,7 +9,6 @@ from typing import Any, cast
 
 from strands._conversions import (
     convert_message,
-    event_from_pyo3,
     event_to_dict,
     flatten_pydantic_schema,
     lifecycle_event_from_wit,
@@ -17,13 +16,6 @@ from strands._conversions import (
     stop_reason_to_snake,
 )
 from strands._strands import Agent as _RustAgent
-from strands.generated.wit_world.imports.types import (
-    StreamEvent_Error,
-    StreamEvent_Stop,
-    StreamEvent_TextDelta,
-    StreamEvent_ToolResult,
-    StreamEvent_ToolUse,
-)
 from strands.hooks import AfterToolCallEvent, HookProvider, HookRegistry
 from strands.tools import DecoratedTool
 from strands.types.exceptions import ContextOverflowError, MaxTokensReachedException, ToolProviderException
@@ -426,11 +418,11 @@ class Agent:
                 if batch is None:
                     break
                 for raw_event in batch:
-                    if raw_event.kind == "lifecycle":
+                    kind = raw_event.kind
+
+                    if kind == "lifecycle":
                         hook_event = lifecycle_event_from_wit(raw_event.lifecycle)
                         if hook_event is not None:
-                            # For AfterToolCallEvent: merge handler-captured result
-                            # (has MCP structuredContent/metadata) with bridge data
                             if isinstance(hook_event, AfterToolCallEvent) and self._last_tool_result:
                                 merged = dict(self._last_tool_result)
                                 if hasattr(hook_event, "tool_use") and hook_event.tool_use:
@@ -440,43 +432,45 @@ class Agent:
                             await self.hooks.fire_async(hook_event)
                         continue
 
-                    event = event_from_pyo3(raw_event)
-                    if event is None:
-                        continue
-
-                    if isinstance(event, StreamEvent_TextDelta):
-                        result.text_parts.append(event.value)
+                    if kind == "text-delta":
+                        text = raw_event.text_delta or ""
+                        result.text_parts.append(text)
                         if self._printer:
-                            print(event.value, end="", flush=True)
+                            print(text, end="", flush=True)
 
-                    elif isinstance(event, StreamEvent_Stop):
-                        result.stop_reason = stop_reason_to_snake(event.value.reason)
-                        result.usage = event.value.usage
-                        latency = event.value.metrics.latency_ms if event.value.metrics else 0.0
+                    elif kind == "stop":
+                        stop = raw_event.stop
+                        result.stop_reason = stop_reason_to_snake(stop)
+                        result.usage = stop.usage if stop else None
+                        latency = stop.metrics.latency_ms if stop and stop.metrics else 0.0
                         result.metrics = Metrics(latency_ms=latency)
                         if self._printer and result.text_parts:
                             print()
 
-                    elif isinstance(event, StreamEvent_ToolUse):
-                        pending_tool_start[event.value.tool_use_id] = _time.monotonic()
-                        pending_tool_start[f"{event.value.tool_use_id}:name"] = event.value.name
+                    elif kind == "tool-use":
+                        tu = raw_event.tool_use
+                        if tu:
+                            pending_tool_start[tu.tool_use_id] = _time.monotonic()
+                            pending_tool_start[f"{tu.tool_use_id}:name"] = tu.name
 
-                    elif isinstance(event, StreamEvent_ToolResult):
-                        tid = event.value.tool_use_id
-                        tool_name = pending_tool_start.pop(f"{tid}:name", "")
-                        if tid in pending_tool_start:
-                            duration = _time.monotonic() - pending_tool_start.pop(tid)
-                            tool_metrics.append({
-                                "toolUseId": tid,
-                                "duration": duration,
-                                "status": event.value.status,
-                            })
-                        success = event.value.status == "success"
-                        if tool_name:
-                            self.event_loop_metrics.record_call(tool_name, success)
+                    elif kind == "tool-result":
+                        tr = raw_event.tool_result
+                        if tr:
+                            tid = tr.tool_use_id
+                            tool_name = pending_tool_start.pop(f"{tid}:name", "")
+                            if tid in pending_tool_start:
+                                duration = _time.monotonic() - pending_tool_start.pop(tid)
+                                tool_metrics.append({
+                                    "toolUseId": tid,
+                                    "duration": duration,
+                                    "status": tr.status,
+                                })
+                            success = tr.status == "success"
+                            if tool_name:
+                                self.event_loop_metrics.record_call(tool_name, success)
 
-                    elif isinstance(event, StreamEvent_Error):
-                        err_msg = event.value
+                    elif kind == "error":
+                        err_msg = raw_event.error or ""
                         if "context" in err_msg.lower() and "exceeded" in err_msg.lower():
                             raise ContextOverflowError(err_msg)
                         if "maximum token" in err_msg.lower():

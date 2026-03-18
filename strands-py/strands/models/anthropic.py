@@ -1,12 +1,10 @@
 import json
-from dataclasses import fields as dc_fields
 from typing import Any
 
-from strands.generated.wit_world.imports.types import AnthropicConfig, ModelParams
 from strands.models.model import Model
 
-_CONFIG_FIELDS = {f.name for f in dc_fields(AnthropicConfig)}
-_PARAM_FIELDS = {f.name for f in dc_fields(ModelParams)}
+_CONFIG_FIELDS = {"model_id", "api_key"}
+_PARAM_FIELDS = {"max_tokens", "temperature", "top_p"}
 _KNOWN_FIELDS = _CONFIG_FIELDS | _PARAM_FIELDS
 
 

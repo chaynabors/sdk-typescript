@@ -31,4 +31,4 @@ asyncio_mode = "auto"
 cache_dir = ".pytest_cache"
 
 [tool.ruff]
-exclude = ["strands/generated"]
+exclude = []

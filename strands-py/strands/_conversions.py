@@ -1,12 +1,8 @@
-"""Conversion between PyO3 flat types, generated WIT dataclasses, and legacy dicts.
+"""Conversions between PyO3 types and Python SDK formats.
 
-Three representations coexist:
-  1. PyO3 flat types (StreamEvent_ with kind="text-delta") — cross the FFI boundary
-  2. Generated WIT dataclasses (StreamEvent_TextDelta) — typed, used internally
-  3. Legacy dicts ({"event": {...}}) — used by stream_async() for SDK compat
-
-Functions prefixed event_from_pyo3 / _usage_from_pyo3 convert 1→2.
-Functions prefixed event_to_dict convert 1→3.
+PyO3 stream events are flat structs with a .kind discriminator and optional typed
+fields (.text_delta, .stop, .tool_use, .tool_result, .metadata, .error, .interrupt).
+Functions here convert these to the dict format the Python SDK expects.
 """
 
 from __future__ import annotations
@@ -15,23 +11,6 @@ import json
 import logging
 from typing import Any, cast
 
-from strands.generated.wit_world.imports.types import (
-    MetadataEvent,
-    Metrics,
-    StopData,
-    StopReason,
-    StreamEvent,
-    StreamEvent_Error,
-    StreamEvent_Interrupt,
-    StreamEvent_Metadata,
-    StreamEvent_Stop,
-    StreamEvent_TextDelta,
-    StreamEvent_ToolResult,
-    StreamEvent_ToolUse,
-    ToolResultEvent,
-    ToolUseEvent,
-    Usage,
-)
 from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
@@ -128,121 +107,16 @@ def lifecycle_event_from_json(payload: str) -> object | None:
     return event
 
 
-_STOP_REASON_MAP: dict[str, StopReason] = {
-    "end-turn": StopReason.END_TURN,
-    "tool-use": StopReason.TOOL_USE,
-    "max-tokens": StopReason.MAX_TOKENS,
-    "error": StopReason.ERROR,
-    "content-filtered": StopReason.CONTENT_FILTERED,
-    "guardrail-intervened": StopReason.GUARDRAIL_INTERVENED,
-    "stop-sequence": StopReason.STOP_SEQUENCE,
-    "model-context-window-exceeded": StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED,
-    "cancelled": StopReason.CANCELLED,
-}
+def stop_reason_to_snake(stop: Any) -> str:
+    """Convert a PyO3 stop payload to the snake_case string the Python SDK uses.
 
-
-def _stop_reason_from_pyo3(pyo3_stop: Any) -> StopReason:
-    """Convert a PyO3 StopReason_ (string .value) to a generated StopReason enum."""
-    if pyo3_stop and hasattr(pyo3_stop, "value"):
-        return _STOP_REASON_MAP.get(pyo3_stop.value, StopReason.ERROR)
-    return StopReason.END_TURN
-
-
-def stop_reason_to_snake(reason: StopReason) -> str:
-    """Convert a WIT StopReason enum to the snake_case string the Python SDK uses."""
-    return reason.name.lower()
-
-
-def _stop_reason_str(stop: Any) -> str:
-    """Convert a PyO3 stop payload to a snake_case string via the canonical map."""
-    reason = _stop_reason_from_pyo3(stop.reason if stop else None)
-    return reason.name.lower()
-
-
-def _usage_from_pyo3(u: Any) -> Usage | None:
-    """Convert PyO3 Usage_ to generated Usage dataclass."""
-    if u is None:
-        return None
-    return Usage(
-        input_tokens=u.input_tokens,
-        output_tokens=u.output_tokens,
-        total_tokens=u.total_tokens,
-        cache_read_input_tokens=u.cache_read_input_tokens,
-        cache_write_input_tokens=u.cache_write_input_tokens,
-    )
-
-
-def _metrics_from_pyo3(m: Any) -> Metrics | None:
-    """Convert PyO3 Metrics_ to generated Metrics dataclass."""
-    if m is None:
-        return None
-    return Metrics(latency_ms=m.latency_ms)
-
-
-def event_from_pyo3(event: Any) -> StreamEvent | None:
-    """Convert a PyO3 StreamEvent_ (flat struct) to a generated StreamEvent (union).
-
-    Returns None for unrecognized event kinds.
+    The WIT stop reason arrives as a PyO3 enum with a .value string like "end-turn".
+    The Python SDK uses "end_turn".
     """
-    kind = event.kind
-
-    if kind == "text-delta":
-        return StreamEvent_TextDelta(value=event.text_delta or "")
-
-    if kind == "stop":
-        stop = event.stop
-        reason = _stop_reason_from_pyo3(stop.reason if stop else None)
-        return StreamEvent_Stop(
-            value=StopData(
-                reason=reason,
-                usage=_usage_from_pyo3(stop.usage) if stop else None,
-                metrics=_metrics_from_pyo3(stop.metrics) if stop else None,
-            ),
-        )
-
-    if kind == "tool-use":
-        tu = event.tool_use
-        if tu:
-            return StreamEvent_ToolUse(
-                value=ToolUseEvent(
-                    name=tu.name,
-                    tool_use_id=tu.tool_use_id,
-                    input=tu.input,
-                ),
-            )
-        return None
-
-    if kind == "tool-result":
-        tr = event.tool_result
-        if tr:
-            return StreamEvent_ToolResult(
-                value=ToolResultEvent(
-                    tool_use_id=tr.tool_use_id,
-                    status=tr.status,
-                    content=tr.content,
-                ),
-            )
-        return None
-
-    if kind == "metadata":
-        me = event.metadata
-        if me:
-            return StreamEvent_Metadata(
-                value=MetadataEvent(
-                    usage=_usage_from_pyo3(me.usage),
-                    metrics=_metrics_from_pyo3(me.metrics),
-                ),
-            )
-        return None
-
-    if kind == "error":
-        return StreamEvent_Error(value=event.error or "")
-
-    if kind == "interrupt":
-        return StreamEvent_Interrupt(value=event.interrupt or "")
-
-    log.warning("unknown stream event kind: %s", kind)
-    return None
+    reason = stop.reason if stop else None
+    if reason and hasattr(reason, "value"):
+        return reason.value.replace("-", "_")
+    return "end_turn"
 
 
 def event_to_dict(event: Any) -> dict[str, Any]:
@@ -259,7 +133,7 @@ def event_to_dict(event: Any) -> dict[str, Any]:
         }
 
     if event.kind == "stop":
-        stop_reason = _stop_reason_str(event.stop)
+        stop_reason = stop_reason_to_snake(event.stop)
         usage = event.stop.usage if event.stop else None
         metrics = event.stop.metrics if event.stop else None
         return {

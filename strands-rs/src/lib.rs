@@ -421,6 +421,7 @@ impl Agent {
             system_prompt_blocks: builder.system_prompt_blocks,
             tools,
             trace_context: builder.trace_context,
+            session: None,
         };
 
         let iface = instance.strands_agent_api();

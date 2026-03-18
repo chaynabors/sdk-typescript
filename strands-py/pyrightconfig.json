@@ -1,6 +1,6 @@
 {
   "include": ["strands"],
-  "exclude": ["strands/generated", "**/node_modules", "**/__pycache__", "**/.*"],
+  "exclude": ["**/node_modules", "**/__pycache__", "**/.*"],
   "pythonVersion": "3.10",
   "pythonPlatform": "All",
   "typeCheckingMode": "standard",

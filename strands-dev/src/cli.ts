@@ -4,6 +4,7 @@ import { execSync } from "node:child_process";
 import { globSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { program } from "commander";
+import { parse as parseTOML } from "smol-toml";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const PY = `${ROOT}/strands-py`;
@@ -187,14 +188,27 @@ program
     }
   });
 
+program
+  .command("report")
+  .description("Generate a status report from tasks.toml")
+  .option("--full", "Include full task breakdown")
+  .action((opts) => report(opts));
+
 program.parse();
 
-function run(cmd: string, opts?: { cwd?: string }): void {
-  execSync(cmd, { stdio: "inherit", cwd: opts?.cwd ?? ROOT });
+function run(cmd: string, opts?: { cwd?: string; env?: Record<string, string> }): void {
+  execSync(cmd, {
+    stdio: "inherit",
+    cwd: opts?.cwd ?? ROOT,
+    env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+  });
 }
 
 function py(cmd: string): void {
-  run(cmd, { cwd: PY });
+  run(cmd, {
+    cwd: PY,
+    env: { VIRTUAL_ENV: `${PY}/.venv`, PATH: `${PY}/.venv/bin:${process.env.PATH}` },
+  });
 }
 
 function gradle(tasks: string): void {
@@ -230,6 +244,7 @@ function build(opts?: {
   const all = !opts?.ts && !opts?.wasm && !opts?.rs && !opts?.py && !opts?.kt;
   const rel = opts?.release ? " --release" : "";
 
+  if (all || opts?.ts || opts?.wasm) run("npm install");
   if (all || opts?.ts) run("npm run build -w strands-ts");
   if (all || opts?.wasm) {
     if (!all && !opts?.ts) run("npm run build -w strands-ts");
@@ -340,14 +355,10 @@ function generate(opts?: { check?: boolean }): void {
     }
   }
 
-  run(
-    `python3 ${resolve(import.meta.dirname, "scripts/generate_py.py")} ${ROOT}`,
-  );
-
   if (opts?.check) {
     try {
       execSync(
-        "git diff --quiet -- strands-wasm/generated/ strands-ts/generated/ strands-py/strands/generated/",
+        "git diff --quiet -- strands-wasm/generated/ strands-ts/generated/",
         { cwd: ROOT },
       );
     } catch {
@@ -355,7 +366,7 @@ function generate(opts?: { check?: boolean }): void {
         "error: generated files are out of date -- run 'strands-dev generate' and commit",
       );
       run(
-        "git diff --stat -- strands-wasm/generated/ strands-ts/generated/ strands-py/strands/generated/",
+        "git diff --stat -- strands-wasm/generated/ strands-ts/generated/",
       );
       process.exit(1);
     }
@@ -372,4 +383,198 @@ function clean(): void {
     gradle("clean");
   } catch {}
   run("rm -f strands-kt/lib/src/main/kotlin/uniffi/strands/strands.kt");
+}
+
+interface Task {
+  title: string;
+  status: string;
+  size?: string;
+  author?: string;
+  notes?: string;
+}
+
+interface Group {
+  description: string;
+}
+
+function report(opts?: { full?: boolean }): void {
+  const SIZE_WEIGHT: Record<string, number> = {
+    xs: 1, s: 2, m: 3, l: 5, xl: 8,
+  };
+  const SIZE_RANK: Record<string, number> = {
+    xs: 1, s: 2, m: 3, l: 4, xl: 5,
+  };
+
+  const repoRoot = resolve(ROOT, "..");
+  const raw = readFileSync(join(repoRoot, "tasks.toml"), "utf-8");
+  const doc = parseTOML(raw) as Record<string, unknown>;
+  const meta = doc.meta as Record<string, unknown>;
+  const groupDefs = doc.groups as Record<string, Group>;
+
+  const reserved = new Set(["meta", "groups"]);
+  const tasksByGroup = new Map<string, Map<string, Task>>();
+
+  for (const [key, value] of Object.entries(doc)) {
+    if (reserved.has(key) || typeof value !== "object" || value === null)
+      continue;
+    const groupTasks = new Map<string, Task>();
+    for (const [taskId, taskValue] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      if (
+        typeof taskValue === "object" &&
+        taskValue !== null &&
+        "status" in taskValue
+      ) {
+        groupTasks.set(taskId, taskValue as Task);
+      }
+    }
+    if (groupTasks.size > 0) tasksByGroup.set(key, groupTasks);
+  }
+
+  const all: Task[] = [];
+  for (const tasks of tasksByGroup.values()) {
+    for (const task of tasks.values()) all.push(task);
+  }
+
+  const done = all.filter((t) => t.status === "done");
+  const inProgress = all.filter((t) => t.status === "in-progress");
+  const blocked = all.filter((t) => t.status === "blocked");
+  const remaining = all.filter((t) => t.status !== "done");
+
+  const sizeSummary = (tasks: Task[]) =>
+    ["xs", "s", "m", "l", "xl"]
+      .map((s) => {
+        const n = tasks.filter((t) => t.size === s).length;
+        return n > 0 ? `${n}${s.toUpperCase()}` : null;
+      })
+      .filter(Boolean)
+      .join(" ");
+
+  const effort = (tasks: Task[]) =>
+    tasks.reduce((sum, t) => sum + (SIZE_WEIGHT[t.size ?? "m"] ?? 3), 0);
+
+  const taskGroup = (task: Task): string => {
+    for (const [g, tasks] of tasksByGroup) {
+      for (const t of tasks.values()) {
+        if (t === task) return g;
+      }
+    }
+    return "";
+  };
+
+  // === Summary ===
+  console.log(`# ${meta.title}`);
+  console.log();
+  const summary = meta.summary as string | undefined;
+  if (summary) {
+    console.log(summary);
+    console.log();
+  }
+  console.log(
+    `**${done.length}** done, **${inProgress.length}** in progress, **${remaining.length - inProgress.length}** todo, **${blocked.length}** blocked — **${all.length}** total`,
+  );
+  console.log();
+  console.log(
+    `Remaining effort: **${sizeSummary(remaining) || "none"}** (${effort(remaining)} points)`,
+  );
+  console.log(
+    `Completed effort: ${sizeSummary(done) || "none"} (${effort(done)} points)`,
+  );
+  console.log();
+
+  // === In progress ===
+  if (inProgress.length > 0) {
+    console.log("## In progress");
+    console.log();
+    for (const task of inProgress) {
+      console.log(
+        `- **${task.title}** (${(task.size ?? "m").toUpperCase()}, ${taskGroup(task)})${task.author ? ` — ${task.author}` : ""}`,
+      );
+    }
+    console.log();
+  }
+
+  // === Blocked ===
+  if (blocked.length > 0) {
+    console.log("## Blocked");
+    console.log();
+    for (const task of blocked) {
+      console.log(
+        `- **${task.title}** (${(task.size ?? "m").toUpperCase()}, ${taskGroup(task)})${task.notes ? ` — ${task.notes}` : ""}`,
+      );
+    }
+    console.log();
+  }
+
+  // === By group (only groups with remaining work) ===
+  console.log("## By group");
+  console.log();
+  console.log("| Group | Description | Remaining | Effort |");
+  console.log("| ----- | ----------- | --------- | ------ |");
+  for (const [groupName, tasks] of tasksByGroup) {
+    const arr = [...tasks.values()];
+    const rem = arr.filter((t) => t.status !== "done");
+    if (rem.length === 0) continue;
+    const desc = groupDefs[groupName]?.description ?? "";
+    console.log(
+      `| ${groupName} | ${desc} | ${sizeSummary(rem)} | ${effort(rem)}pt |`,
+    );
+  }
+  console.log();
+
+  // === Completed summary (always shown) ===
+  if (done.length > 0) {
+    console.log("## Completed");
+    console.log();
+    for (const [groupName, tasks] of tasksByGroup) {
+      const groupDone = [...tasks.values()].filter((t) => t.status === "done");
+      if (groupDone.length === 0) continue;
+      const titles = groupDone.map((t) => t.title).join(", ");
+      console.log(
+        `- **${groupName}** (${groupDone.length}): ${titles}`,
+      );
+    }
+    console.log();
+  }
+
+  if (!opts?.full) return;
+
+  // === Remaining (--full) ===
+  if (remaining.length > 0) {
+    console.log("---");
+    console.log();
+    console.log("## Remaining (detail)");
+    console.log();
+    console.log("| Size | Group | Task | Status | Notes |");
+    console.log("| ---- | ----- | ---- | ------ | ----- |");
+    remaining
+      .sort(
+        (a, b) =>
+          (SIZE_RANK[b.size ?? "m"] ?? 3) - (SIZE_RANK[a.size ?? "m"] ?? 3),
+      )
+      .forEach((task) => {
+        console.log(
+          `| ${(task.size ?? "m").toUpperCase()} | ${taskGroup(task)} | ${task.title} | ${task.status} | ${task.notes ?? ""} |`,
+        );
+      });
+    console.log();
+  }
+
+  // === Completed (--full) ===
+  if (done.length > 0) {
+    console.log("## Completed (detail)");
+    console.log();
+    console.log("| Size | Group | Task | Author |");
+    console.log("| ---- | ----- | ---- | ------ |");
+    for (const [groupName, tasks] of tasksByGroup) {
+      for (const task of tasks.values()) {
+        if (task.status === "done") {
+          console.log(
+            `| ${(task.size ?? "m").toUpperCase()} | ${groupName} | ${task.title} | ${task.author ?? ""} |`,
+          );
+        }
+      }
+    }
+  }
 }
