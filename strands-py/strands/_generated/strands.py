@@ -479,7 +479,7 @@ def _uniffi_check_contract_api_version(lib):
         raise InternalError("UniFFI contract version mismatch: try cleaning and rebuilding your project")
 
 def _uniffi_check_api_checksums(lib):
-    if lib.uniffi_strands_checksum_constructor_agent_new() != 50604:
+    if lib.uniffi_strands_checksum_constructor_agent_new() != 17047:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_strands_checksum_method_agent_close_stream() != 12253:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -841,6 +841,7 @@ _UniffiLib.uniffi_strands_fn_constructor_agent_new.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
     _UniffiRustBuffer,
+    ctypes.c_int8,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_strands_fn_constructor_agent_new.restype = ctypes.c_uint64
@@ -3158,7 +3159,7 @@ class AgentProtocol(typing.Protocol):
 class Agent(AgentProtocol):
     
     _handle: ctypes.c_uint64
-    def __init__(self, model: typing.Optional[ModelConfigInput],system_prompt: typing.Optional[str],system_prompt_blocks: typing.Optional[str],tools: typing.Optional[typing.List[ToolSpecConfig]],tool_dispatcher: typing.Optional[ToolDispatcher],log_handler: typing.Optional[LogHandler]):
+    def __init__(self, model: typing.Optional[ModelConfigInput],system_prompt: typing.Optional[str],system_prompt_blocks: typing.Optional[str],tools: typing.Optional[typing.List[ToolSpecConfig]],tool_dispatcher: typing.Optional[ToolDispatcher],log_handler: typing.Optional[LogHandler],use_callback_relay: bool):
         """
         Construction is synchronous (block_on) — the UniFFI async runtime
         (`async_compat`) provides the tokio context needed by wasmtime.
@@ -3175,6 +3176,8 @@ class Agent(AgentProtocol):
         _UniffiFfiConverterOptionalTypeToolDispatcher.check_lower(tool_dispatcher)
 
         _UniffiFfiConverterOptionalTypeLogHandler.check_lower(log_handler)
+
+        _UniffiFfiConverterBoolean.check_lower(use_callback_relay)
         _uniffi_lowered_args = (
             _UniffiFfiConverterOptionalTypeModelConfigInput.lower(model),
             _UniffiFfiConverterOptionalString.lower(system_prompt),
@@ -3182,6 +3185,7 @@ class Agent(AgentProtocol):
             _UniffiFfiConverterOptionalSequenceTypeToolSpecConfig.lower(tools),
             _UniffiFfiConverterOptionalTypeToolDispatcher.lower(tool_dispatcher),
             _UniffiFfiConverterOptionalTypeLogHandler.lower(log_handler),
+            _UniffiFfiConverterBoolean.lower(use_callback_relay),
         )
         _uniffi_lift_return = _UniffiFfiConverterTypeAgent.lift
         _uniffi_error_converter = _UniffiFfiConverterTypeAgentError
@@ -3702,6 +3706,27 @@ class _UniffiFfiConverterOptionalTypeLogHandler(_UniffiConverterRustBuffer):
             return _UniffiFfiConverterTypeLogHandler.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
+
+class _UniffiFfiConverterBoolean:
+    @classmethod
+    def check_lower(cls, value):
+        return not not value
+
+    @classmethod
+    def lower(cls, value):
+        return 1 if value else 0
+
+    @staticmethod
+    def lift(value):
+        return value != 0
+
+    @classmethod
+    def read(cls, buf):
+        return cls.lift(buf.read_u8())
+
+    @classmethod
+    def write(cls, value, buf):
+        buf.write_u8(value)
 
 __all__ = [
     "InternalError",

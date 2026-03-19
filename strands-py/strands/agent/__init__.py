@@ -136,7 +136,10 @@ class _ToolDispatcher(_ToolDispatcherBase):
         handler = self._handlers.get(name)
         if handler is None:
             return json.dumps({"status": "error", "content": [{"text": f"unknown tool: {name}"}]})
-        return handler(input, tool_use_id)
+        try:
+            return handler(input, tool_use_id)
+        except Exception as exc:
+            return json.dumps({"status": "error", "content": [{"text": str(exc)}]})
 
 
 class _LogHandler(_LogHandlerBase):
@@ -288,6 +291,7 @@ class Agent:
             tools=tool_specs,
             tool_dispatcher=self._dispatcher,
             log_handler=_LogHandler(),
+            use_callback_relay=False,
         )
 
         if messages is not None:

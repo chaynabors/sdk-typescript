@@ -154,6 +154,13 @@ size = "s"
 author = "chaynabors"
 notes = "README.md with architecture overview, build pipeline diagram, dev CLI reference, and validation workflows."
 
+[mono.optional-callback-relay]
+title = "Optional JVM callback relay"
+status = "done"
+size = "s"
+author = "chaynabors"
+notes = "JNA needs a relay thread for callbacks on wasmtime's async fiber. Python (ctypes) does not. Relay is now opt-in via use_callback_relay param."
+
 [exploratory.uniffi-replace-pyo3]
 title = "Replace PyO3 with UniFFI for Python"
 status = "done"

@@ -56,9 +56,11 @@ class Agent @JvmOverloads constructor(
         native = NativeAgent(
             model = model?.toNative(),
             systemPrompt = systemPrompt,
+            systemPromptBlocks = null,
             tools = specs,
             toolDispatcher = dispatcher,
             logHandler = logger,
+            useCallbackRelay = true,
         )
     }
 

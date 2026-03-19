@@ -129,6 +129,7 @@ impl Agent {
         tools: Option<Vec<ToolSpecConfig>>,
         tool_dispatcher: Option<Arc<dyn ToolDispatcher>>,
         log_handler: Option<Arc<dyn LogHandler>>,
+        use_callback_relay: bool,
     ) -> Result<Arc<Self>, AgentError> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -164,39 +165,65 @@ impl Agent {
             builder = builder.tools(specs);
         }
 
-        // Callbacks from the WASM guest (tool dispatch, logging) are invoked
-        // on wasmtime's async fiber stack. JNA can't attach the fiber to the
-        // JVM, so we relay all callbacks through a dedicated OS thread.
-        let relay = Arc::new(JvmCallbackRelay::new());
+        // JNA can't attach to wasmtime's async fiber stack, so Kotlin
+        // callers need a dedicated relay thread for callbacks. Python
+        // (ctypes) can call directly on the fiber — no relay needed.
+        let relay = if use_callback_relay {
+            Some(Arc::new(JvmCallbackRelay::new()))
+        } else {
+            None
+        };
 
         if let Some(dispatcher) = tool_dispatcher {
-            let r = Arc::clone(&relay);
-            builder = builder.tool_dispatch_fn(
-                move |name: &str, input: &str, tool_use_id: &str| -> Result<String, String> {
-                    let d = Arc::clone(&dispatcher);
-                    let n = name.to_string();
-                    let i = input.to_string();
-                    let t = tool_use_id.to_string();
-                    r.call(move || d.call_tool(n, i, t).map_err(|e| e.to_string()))
-                        .map_err(|e| format!("callback relay: {e}"))?
-                },
-            );
+            if let Some(ref r) = relay {
+                let r = Arc::clone(r);
+                builder = builder.tool_dispatch_fn(
+                    move |name: &str, input: &str, tool_use_id: &str| -> Result<String, String> {
+                        let d = Arc::clone(&dispatcher);
+                        let n = name.to_string();
+                        let i = input.to_string();
+                        let t = tool_use_id.to_string();
+                        r.call(move || d.call_tool(n, i, t).map_err(|e| e.to_string()))
+                            .map_err(|e| format!("callback relay: {e}"))?
+                    },
+                );
+            } else {
+                builder = builder.tool_dispatch_fn(
+                    move |name: &str, input: &str, tool_use_id: &str| -> Result<String, String> {
+                        dispatcher
+                            .call_tool(name.to_string(), input.to_string(), tool_use_id.to_string())
+                            .map_err(|e| e.to_string())
+                    },
+                );
+            }
         }
 
         if let Some(handler) = log_handler {
-            let r = Arc::clone(&relay);
-            builder = builder.log_handler(
-                move |level: &str, message: &str, context: Option<&str>| {
-                    let h = Arc::clone(&handler);
-                    let l = level.to_string();
-                    let m = message.to_string();
-                    let c = context.map(|s| s.to_string());
-                    let _ = r.call(move || {
-                        h.log(l, m, c);
-                        Ok::<_, String>(())
-                    });
-                },
-            );
+            if let Some(ref r) = relay {
+                let r = Arc::clone(r);
+                builder = builder.log_handler(
+                    move |level: &str, message: &str, context: Option<&str>| {
+                        let h = Arc::clone(&handler);
+                        let l = level.to_string();
+                        let m = message.to_string();
+                        let c = context.map(|s| s.to_string());
+                        let _ = r.call(move || {
+                            h.log(l, m, c);
+                            Ok::<_, String>(())
+                        });
+                    },
+                );
+            } else {
+                builder = builder.log_handler(
+                    move |level: &str, message: &str, context: Option<&str>| {
+                        handler.log(
+                            level.to_string(),
+                            message.to_string(),
+                            context.map(|s| s.to_string()),
+                        );
+                    },
+                );
+            }
         }
 
         let agent = rt.block_on(builder.build())?;
