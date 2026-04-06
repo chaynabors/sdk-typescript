@@ -20,3 +20,4 @@ strands-kt/lib/src/main/kotlin/uniffi/
 dist/
 node_modules/
 target/
+**/_generated

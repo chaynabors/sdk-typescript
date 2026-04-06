@@ -1,5 +1,7 @@
 # Strands
 
+A multi-language AI agent SDK built on a WebAssembly component architecture. A single TypeScript agent runtime is compiled to a WASM component, hosted by Rust (Wasmtime), and exposed to other languages via UniFFI — one implementation serving all languages through a shared binary.
+
 See [docs](./docs) for the design proposal and ongoing team decisions.
 
 ## Getting started
@@ -8,13 +10,14 @@ See [docs](./docs) for the design proposal and ongoing team decisions.
 
 - Rust stable toolchain with the `wasm32-wasip2` target
 - Node.js 22+
-- Python 3.11+
+- Python 3.10+
 
 ### First-time setup
 
 ```bash
 git clone https://github.com/strands-agents/strands.git
 cd strands
+npm install
 npm run dev -- bootstrap
 ```
 
@@ -55,6 +58,8 @@ graph TD
 | `strands-py/`     | Python     | Python wrapper: Agent class, @tool decorator, structured output     |
 | `strands-kt/`     | Kotlin     | Kotlin/Java wrapper via UniFFI bindings                             |
 | `strands-dev/`    | TypeScript | Dev CLI that orchestrates build, test, lint, and CI                 |
+| `uniffi-bindgen/` | Rust       | UniFFI binding generator utility                                    |
+| `docs/`           | Markdown   | Design proposal and team decisions                                  |
 
 ### Generated code
 
@@ -140,4 +145,5 @@ Comments are normative statements that describe what code does or why a decision
 
 - Run `npm run dev -- ci` before pushing. This is the same pipeline CI runs.
 - Keep PRs focused on a single change.
-- Use single-line commit messages that describe what the change does.
+- Commit messages must be scoped: `[scope] message` (e.g., `[strands-py] Fix tool context injection`).
+  Valid scopes: `mono`, `meta`, `strands-ts`, `strands-wasm`, `strands-rs`, `strands-py`, `strands-dev`, `strands-derive`, `strands-metrics`. Enforced by a husky commit-msg hook.

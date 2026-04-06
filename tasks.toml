@@ -154,13 +154,6 @@ size = "s"
 author = "chaynabors"
 notes = "README.md with architecture overview, build pipeline diagram, dev CLI reference, and validation workflows."
 
-[mono.optional-callback-relay]
-title = "Optional JVM callback relay"
-status = "done"
-size = "s"
-author = "chaynabors"
-notes = "JNA needs a relay thread for callbacks on wasmtime's async fiber. Python (ctypes) does not. Relay is now opt-in via use_callback_relay param."
-
 [exploratory.uniffi-replace-pyo3]
 title = "Replace PyO3 with UniFFI for Python"
 status = "done"
@@ -179,6 +172,12 @@ title = "Merge strands-wasm into strands-ts"
 status = "todo"
 size = "m"
 notes = "entry.ts is 496 lines bridging TS SDK to WIT. If it lived inside strands-ts, we eliminate a build step and a package."
+
+[exploratory.agentic-mapping]
+title = "Create Agentic workflows that make it easy for developers to implement the mapping logic needed in wit, rust, unifii, and python for a new typescript feature"
+status = "todo"
+size = "m"
+
 
 # ============================================================================
 # TypeScript SDK
@@ -271,20 +270,6 @@ status = "done"
 size = "m"
 author = "chaynabors"
 notes = "Auto-generates PyO3/UniFFI wrapper types from WIT bindgen output."
-
-[mono.kotlin-sdk]
-title = "Kotlin SDK"
-status = "done"
-size = "m"
-author = "chaynabors"
-notes = "Agent class, Tool builder, streaming via UniFFI bindings."
-
-[mono.java-interop]
-title = "Java interop and examples"
-status = "done"
-size = "s"
-author = "chaynabors"
-notes = "Java example and JVM compatibility layer."
 
 [infrastructure.dev-cli]
 title = "Development CLI"

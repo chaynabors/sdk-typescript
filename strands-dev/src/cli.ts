@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 
 import { execSync } from "node:child_process";
-import { globSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { program } from "commander";
 import { parse as parseTOML } from "smol-toml";
@@ -230,7 +230,7 @@ function setup(opts?: {
   if (all || opts?.rust) {
     run("rustup update stable");
     run("rustup target add wasm32-wasip2");
-    run("cargo install cargo-machete cargo-upgrade");
+    run("cargo install cargo-machete cargo-edit");
   }
   if (all || opts?.node) run("npm install");
   if (all || opts?.python) {
@@ -352,6 +352,10 @@ function generate(opts?: { check?: boolean }): void {
   }
 
   // Generate Python UniFFI bindings from the compiled cdylib.
+  // The Rust crate's build.rs needs the WASM component, so ensure TS + WASM are built first.
+  if (!existsSync(join(ROOT, "strands-wasm/dist/strands-agent.wasm"))) {
+    build({ ts: true, wasm: true });
+  }
   const lib = `target/debug/${cdylibName()}`;
   run(`cargo rustc -p strands --crate-type cdylib`);
   run(
