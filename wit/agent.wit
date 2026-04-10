@@ -189,7 +189,7 @@ interface tool-provider {
 ///
 /// The guest calls `log` at key decision points (tool dispatch, event
 /// mapping, errors).  The host routes entries to its own logging backend
-/// (e.g. Python `logging`, Rust `tracing`).
+/// (e.g. Python `logging`).
 interface host-log {
   enum log-level {
     trace,

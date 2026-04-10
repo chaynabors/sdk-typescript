@@ -1,8 +1,8 @@
-"""Conversions between UniFFI types and upstream Python SDK formats.
+"""Conversions between WIT types and upstream Python SDK formats.
 
-Stream events are flat structs with a .kind discriminator and optional typed
-fields (.text_delta, .stop, .tool_use, .tool_result, .metadata, .error, .interrupt).
-Functions here convert these to the dict format the upstream Python SDK expects.
+Stream events are Union-typed dataclasses (one per variant case) with a
+``.value`` payload.  Functions here convert these to the dict format the
+upstream Python SDK expects.
 """
 
 from __future__ import annotations
@@ -11,6 +11,18 @@ import json
 import logging
 from typing import Any, cast
 
+from strands._generated.types import (
+    StopReason,
+    StreamEvent,
+    StreamEvent_Error,
+    StreamEvent_Interrupt,
+    StreamEvent_Lifecycle,
+    StreamEvent_Metadata,
+    StreamEvent_Stop,
+    StreamEvent_TextDelta,
+    StreamEvent_ToolResult,
+    StreamEvent_ToolUse,
+)
 from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
@@ -51,15 +63,16 @@ _LIFECYCLE_EVENT_MAP: dict[str, type] = {
 def lifecycle_event_from_wit(lifecycle: Any) -> object | None:
     """Convert a structured WIT LifecycleEvent into a hook event instance, or None.
 
-    The lifecycle object has: event_type (WIT enum), tool_use (optional JSON string),
-    result (optional JSON string).
+    The lifecycle object has: event_type (LifecycleEventType enum),
+    tool_use (optional JSON string), tool_result (optional JSON string).
     """
     event_type = lifecycle.event_type
     if event_type is None:
         return None
 
-    # The WIT enum comes through UniFFI as an object with a .value string attribute.
-    type_str = event_type.value if hasattr(event_type, "value") else str(event_type)
+    # The LifecycleEventType is a Python Enum; convert to kebab-case string
+    # for the lookup map (e.g. BEFORE_TOOL_CALL -> "before-tool-call").
+    type_str = event_type.name.lower().replace("_", "-")
     cls = _LIFECYCLE_EVENT_MAP.get(type_str)
     if cls is None:
         return None
@@ -84,49 +97,47 @@ def lifecycle_event_from_wit(lifecycle: Any) -> object | None:
 def stop_reason_to_snake(stop: Any) -> str:
     """Convert a WIT stop reason to the snake_case string the upstream Python SDK uses.
 
-    The WIT stop reason arrives as a UniFFI record with a .value string like "end-turn".
+    The StopReason is a Python Enum (e.g. StopReason.END_TURN).
     The upstream Python SDK uses "end_turn".
     """
     reason = stop.reason if stop else None
-    if reason and hasattr(reason, "value"):
-        return reason.value.replace("-", "_")
+    if reason is not None:
+        if isinstance(reason, StopReason):
+            return reason.name.lower()
+        # Fallback for raw strings
+        return str(reason).replace("-", "_")
     return "end_turn"
 
 
-def event_to_dict(event: Any) -> dict[str, Any]:
-    """Convert a Rust StreamEvent into the dict format the Python SDK expects.
+def event_to_dict(event: StreamEvent) -> dict[str, Any]:
+    """Convert a StreamEvent variant into the dict format the Python SDK expects.
 
     Returns a plain dict. The "stop" branch returns a partial result dict —
     the caller is responsible for filling in the accumulated text.
     """
     from strands.agent import AgentResult
 
-    if event.kind == "text-delta":
+    if isinstance(event, StreamEvent_TextDelta):
         return {
-            "event": {"contentBlockDelta": {"delta": {"text": event.text_delta or ""}}},
+            "event": {"contentBlockDelta": {"delta": {"text": event.value or ""}}},
         }
 
-    if event.kind == "stop":
-        stop_reason = stop_reason_to_snake(event.stop)
-        usage = event.stop.usage if event.stop else None
-        metrics = event.stop.metrics if event.stop else None
+    if isinstance(event, StreamEvent_Stop):
+        sd = event.value
+        stop_reason = stop_reason_to_snake(sd)
         return {
             "result": AgentResult(
-                text="", stop_reason=stop_reason, usage=usage, metrics=metrics,
+                text="", stop_reason=stop_reason, usage=sd.usage, metrics=sd.metrics,
             ),
         }
 
-    if event.kind == "tool-use":
-        tu = event.tool_use
-        tool_use_data: dict[str, Any] = (
-            {
-                "name": tu.name,
-                "toolUseId": tu.tool_use_id,
-                "input": _safe_json_loads(tu.input, {}),
-            }
-            if tu
-            else {}
-        )
+    if isinstance(event, StreamEvent_ToolUse):
+        tu = event.value
+        tool_use_data: dict[str, Any] = {
+            "name": tu.name,
+            "toolUseId": tu.tool_use_id,
+            "input": _safe_json_loads(tu.input, {}),
+        }
         return {
             "event": {
                 "contentBlockStart": {
@@ -135,21 +146,17 @@ def event_to_dict(event: Any) -> dict[str, Any]:
             },
         }
 
-    if event.kind == "tool-result":
-        tr = event.tool_result
-        tool_result_data: dict[str, Any] = (
-            {
-                "toolUseId": tr.tool_use_id,
-                "status": tr.status,
-                "content": _safe_json_loads(tr.content, []),
-            }
-            if tr
-            else {}
-        )
+    if isinstance(event, StreamEvent_ToolResult):
+        tr = event.value
+        tool_result_data: dict[str, Any] = {
+            "toolUseId": tr.tool_use_id,
+            "status": tr.status,
+            "content": _safe_json_loads(tr.content, []),
+        }
         return {"event": {"toolResult": tool_result_data}}
 
-    if event.kind == "metadata":
-        me = event.metadata
+    if isinstance(event, StreamEvent_Metadata):
+        me = event.value
         metadata: dict[str, Any] = {}
         if me:
             if me.usage:
@@ -164,10 +171,14 @@ def event_to_dict(event: Any) -> dict[str, Any]:
                 metadata["metrics"] = {"latencyMs": me.metrics.latency_ms}
         return {"event": {"metadata": metadata}}
 
-    if event.kind == "error":
-        return {"error": event.error}
+    if isinstance(event, StreamEvent_Error):
+        return {"error": event.value}
 
-    log.warning("unknown stream event kind: %s", event.kind)
+    if isinstance(event, StreamEvent_Lifecycle):
+        # Lifecycle events are handled separately by the agent loop
+        return {}
+
+    log.warning("unknown stream event type: %s", type(event).__name__)
     return {}
 
 

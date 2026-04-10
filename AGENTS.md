@@ -4,34 +4,28 @@
 
 ## Overview
 
-Strands is a multi-language AI agent SDK. A TypeScript agent runtime is compiled to a WASM component, hosted by Rust (Wasmtime), and exposed to Python and Kotlin/Java via UniFFI. One implementation serves all languages through a shared binary.
+Strands is a multi-language AI agent SDK. A TypeScript agent runtime is compiled to a WASM component and hosted directly by Python via `wasmtime-py`. One TS implementation serves all languages through a shared WASM binary.
 
 ## Directory Map
 
-| Directory         | Language   | What it is                                                          |
-|-------------------|------------|---------------------------------------------------------------------|
-| `wit/`            | WIT        | Interface contract between WASM guest and host                      |
-| `strands-ts/`     | TypeScript | Agent runtime: event loop, model providers, tools, hooks, streaming |
-| `strands-wasm/`   | TypeScript | Bridges TS SDK to WIT exports, compiles to WASM component          |
-| `strands-rs/`     | Rust       | WASM host: Wasmtime, AOT compilation, WASI HTTP, UniFFI            |
-| `strands-derive/` | Rust       | Proc macro: generates UniFFI wrapper types from WIT bindgen output  |
-| `strands-py/`     | Python     | Python wrapper: Agent class, @tool decorator, structured output     |
-| `strands-kt/`     | Kotlin     | Kotlin/Java wrapper via UniFFI bindings                             |
-| `strands-dev/`    | TypeScript | Dev CLI (`src/cli.ts`) orchestrating build, test, lint, CI          |
-| `uniffi-bindgen/` | Rust       | UniFFI binding generator utility                                    |
-| `docs/`           | Markdown   | Design proposal and team decisions                                  |
+| Directory      | Language   | What it is                                                          |
+|----------------|------------|---------------------------------------------------------------------|
+| `wit/`         | WIT        | Interface contract between WASM guest and host                      |
+| `strands-ts/`  | TypeScript | Agent runtime: event loop, model providers, tools, hooks, streaming |
+| `strands-wasm/` | TypeScript | Bridges TS SDK to WIT exports, compiles to WASM component          |
+| `strands-py/`  | Python     | Python wrapper: Agent class, @tool decorator, direct WASM host      |
+| `wasmtime-py/` | Python     | Wasmtime Python bindings (local fork with async component model)    |
+| `strands-dev/` | TypeScript | Dev CLI (`src/cli.ts`) orchestrating build, test, lint, CI          |
+| `docs/`        | Markdown   | Design proposal, team decisions, migration plan                     |
 
 ## Build Pipeline
 
-Changes flow through layers. Each depends on the one above:
-
 ```
 wit/agent.wit → generate → strands-ts (npm build) → esbuild → strands-wasm (componentize-js)
-→ agent.wasm → AOT compile (build.rs) → strands-rs (Cargo) → libstrands cdylib
-→ maturin → strands-py | uniffi-bindgen → strands-kt
+→ agent.wasm → wasmtime-py (ctypes) → strands-py
 ```
 
-Generated TS/WASM bindings are checked in (marked `// @generated`). UniFFI Python/Kotlin bindings are not.
+Generated TS/WASM bindings are checked in (marked `// @generated`). Python types are hand-written in `_wasm_types.py`.
 
 ## Key Entry Points
 
@@ -40,22 +34,36 @@ Generated TS/WASM bindings are checked in (marked `// @generated`). UniFFI Pytho
 | WIT contract (all types/resources)   | `wit/agent.wit`                                  |
 | TS agent implementation              | `strands-ts/src/agent/agent.ts`                  |
 | TS model providers                   | `strands-ts/src/models/`                         |
+| TS multiagent (swarm)                | `strands-ts/src/multiagent/`                     |
+| TS session management                | `strands-ts/src/session/`                        |
 | TS public exports                    | `strands-ts/src/index.ts`                        |
 | WASM bridge (TS ↔ WIT mapping)       | `strands-wasm/entry.ts`                          |
-| Rust host (Wasmtime, streaming)      | `strands-rs/src/lib.rs`                          |
-| Rust UniFFI bridge types             | `strands-rs/src/uniffi_bridge.rs`                |
-| Rust AOT compilation                 | `strands-rs/build.rs`                            |
+| Python WASM host                     | `strands-py/strands/_wasm_host.py`               |
+| Python WIT type definitions          | `strands-py/strands/_wasm_types.py`              |
+| Python type conversions (WIT ↔ dict) | `strands-py/strands/_conversions.py`             |
 | Python Agent class                   | `strands-py/strands/agent/__init__.py`           |
 | Python @tool decorator               | `strands-py/strands/tools/decorator.py`          |
 | Python model wrappers                | `strands-py/strands/models/`                     |
 | Python MCP client                    | `strands-py/strands/tools/mcp/mcp_client.py`    |
 | Python multiagent (Graph, Swarm)     | `strands-py/strands/multiagent/`                 |
 | Python hooks/lifecycle events        | `strands-py/strands/hooks.py`                    |
-| Python type conversions (WIT ↔ dict) | `strands-py/strands/_conversions.py`             |
 | Dev CLI source                       | `strands-dev/src/cli.ts`                         |
 | Task tracking / work items           | `tasks.toml`                                     |
-| Design proposal                      | `docs/design-proposal.md`                        |
-| Team decisions                       | `docs/team-decisions.md`                         |
+| wasmtime-py component model          | `wasmtime-py/wasmtime/component/`                |
+| wasmtime-py FFI layer                | `wasmtime-py/wasmtime/_ffi.py`                   |
+
+## Repo-Specific Patterns
+
+- **WASM boundary:** All agent logic runs in the TS guest. Python is a thin host that marshals types across the WIT boundary. Tool execution is dispatched back to the host via the `tool-provider` import.
+- **Process-wide cache:** `_wasm_host.py` caches Engine + Component in a `threading.Lock`-protected singleton. First agent construction pays JIT compilation cost; subsequent ones are fast.
+- **Per-agent Linker:** Each `WasmAgent` gets its own Linker/Store because tool dispatch callbacks are instance-specific.
+- **Async WASM calls:** All WASM entry points use `call_async`. Sync wrappers use `_run_sync()` which handles nested event loops by spawning a thread.
+- **Record attribute naming:** wasmtime-py Records use kebab-case attributes matching WIT field names. Access via `getattr(obj, "field-name")`. The `_rec()` helper builds Records via `__dict__`.
+- **Model config passthrough:** Python model wrappers (e.g., `BedrockModel`) separate known fields from extras. Known fields go through typed WIT fields; extras are JSON-serialized into `additional_config`.
+- **Generated code:** `strands-ts/generated/` and `strands-wasm/generated/` are committed. Run `npm run dev -- generate --check` to verify freshness.
+- **componentize-js fork:** Uses `@chaynabors/componentize-js` due to upstream WASI buffer reuse issues. See `strands-wasm/patches/getChunkedStream.js`.
+- **wasmtime-py fork:** Local fork from `unshure/wasmtime` (v45.0.0-async) providing async component model support not available upstream.
+- **AWS credential injection:** `_wasm_host.py` resolves credentials from env vars / `~/.aws/credentials` and injects into Bedrock model config before passing to WASM.
 
 ## Validation Commands
 
@@ -64,28 +72,16 @@ npm run dev -- validate wit         # WIT contract change (cascades to all layer
 npm run dev -- validate ts          # TS SDK internals only
 npm run dev -- validate ts-api      # TS SDK public API (includes WASM + downstream)
 npm run dev -- validate wasm        # WASM bridge
-npm run dev -- validate rs          # Rust host
-npm run dev -- validate py-bindings # Python bindings (Rust code)
 npm run dev -- validate py          # Pure Python
 ```
 
 **TS internals vs public API:** If `strands-wasm/entry.ts` imports what you changed, it's a public API change → use `ts-api`. Otherwise use `ts`.
 
-**WIT changes** cascade to every layer. Fix compile errors in `strands-wasm/entry.ts`, `strands-rs/`, `strands-derive/`, and language wrappers.
-
-## Repo-Specific Patterns
-
-- **WASM boundary:** All agent logic runs in the TS guest. Language wrappers are thin layers that marshal types across the WIT boundary. Tool execution is dispatched back to the host via the `tool-provider` import.
-- **AOT cache:** `strands-rs/src/lib.rs` uses a process-wide `OnceLock` to cache the Wasmtime Engine/Component/Linker. First agent construction pays ~100ms; subsequent ones ~7ms.
-- **Model config passthrough:** Python model wrappers (e.g., `BedrockModel`) separate known fields from extras. Known fields go through typed WIT fields; extras are JSON-serialized into `additional_config`.
-- **Generated code:** `strands-ts/generated/` and `strands-wasm/generated/` are committed. Run `npm run dev -- generate --check` to verify freshness. CI fails on stale generated code.
-- **componentize-js fork:** Uses `@chaynabors/componentize-js` due to upstream WASI buffer reuse issues. See `strands-wasm/patches/getChunkedStream.js`.
-
 ## Commit Convention
 
 Scoped messages required: `[scope] message`
 
-Scopes: `mono`, `meta`, `strands-ts`, `strands-wasm`, `strands-rs`, `strands-py`, `strands-dev`, `strands-derive`, `strands-metrics`
+Scopes: `mono`, `meta`, `strands-ts`, `strands-wasm`, `strands-py`, `strands-dev`, `strands-metrics`
 
 Enforced by `.husky/commit-msg` hook.
 
@@ -93,7 +89,6 @@ Enforced by `.husky/commit-msg` hook.
 
 | Language   | Formatter     | Linter         |
 |------------|---------------|----------------|
-| Rust       | `cargo fmt`   | `cargo clippy` |
 | TypeScript | `prettier`    | `tsc --noEmit` + eslint |
 | Python     | `ruff format` | `ruff check`   |
 
@@ -102,9 +97,8 @@ Enforced by `.husky/commit-msg` hook.
 | Layer          | Framework | Location                                                          |
 |----------------|-----------|-------------------------------------------------------------------|
 | TypeScript SDK | vitest    | `strands-ts/src/**/__tests__/` (unit), `strands-ts/test/` (integ) |
-| Rust host      | cargo     | `strands-rs/src/` (doc-tests)                                     |
 | Python wrapper | pytest    | `strands-py/tests_integ/`                                         |
-| Kotlin wrapper | JUnit     | `strands-kt/lib/src/test/`                                        |
+| wasmtime-py    | pytest    | `wasmtime-py/tests/`                                              |
 
 ## Detailed Documentation
 

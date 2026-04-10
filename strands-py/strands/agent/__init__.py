@@ -15,12 +15,20 @@ from strands._conversions import (
     resolve_model,
     stop_reason_to_snake,
 )
-from strands._generated import (
-    Agent as _RustAgent,
-    LogHandler as _LogHandlerBase,
+from strands._wasm_host import (
+    LogHandlerBase as _LogHandlerBase,
     ModelConfigInput as _ModelConfigInput,
-    ToolDispatcher as _ToolDispatcherBase,
-    ToolSpecConfig as _ToolSpecConfig,
+    ToolDispatcherBase as _ToolDispatcherBase,
+    WasmAgent as _WasmAgent,
+)
+from strands._generated.types import (
+    StreamEvent_Error,
+    StreamEvent_Lifecycle,
+    StreamEvent_Stop,
+    StreamEvent_TextDelta,
+    StreamEvent_ToolResult,
+    StreamEvent_ToolUse,
+    ToolSpec as _ToolSpec,
 )
 from strands.hooks import AfterToolCallEvent, HookProvider, HookRegistry
 from strands.tools import DecoratedTool
@@ -253,7 +261,7 @@ class Agent:
         self._printer = printer
 
         self._dispatcher = _ToolDispatcher()
-        rust_tools = self._register_tools(tools) if tools is not None else None
+        wasm_tools = self._register_tools(tools) if tools is not None else None
 
         if load_tools_from_directory:
             self._scan_tools_directory()
@@ -273,18 +281,18 @@ class Agent:
         model_config = self._build_model_config(resolve_model(model))
         tool_specs = (
             [
-                _ToolSpecConfig(
+                _ToolSpec(
                     name=t["name"],
                     description=t["description"],
                     input_schema=json.dumps(t.get("inputSchema", {})),
                 )
-                for t in rust_tools
+                for t in wasm_tools
             ]
-            if rust_tools
+            if wasm_tools
             else None
         )
 
-        self._rust_agent = _RustAgent(
+        self._wasm_agent = _WasmAgent(
             model=model_config,
             system_prompt=sp_str,
             system_prompt_blocks=sp_blocks,
@@ -295,7 +303,7 @@ class Agent:
         )
 
         if messages is not None:
-            self._rust_agent.set_messages(json.dumps(messages))
+            self._wasm_agent.set_messages(json.dumps(messages))
 
     @staticmethod
     def _build_model_config(model_dict: dict[str, Any] | None) -> _ModelConfigInput | None:
@@ -318,7 +326,7 @@ class Agent:
         Handles DecoratedTool, dict specs, and MCPClient/ToolProvider instances
         (which are expanded via list_tools_sync()).
         """
-        rust_tools: list[dict[str, Any]] = []
+        wasm_tools: list[dict[str, Any]] = []
         for t in tools:
             if isinstance(t, DecoratedTool):
                 self._tool_map[t.tool_name] = ToolEntry(
@@ -328,7 +336,7 @@ class Agent:
                 )
                 handler = t.make_handler(agent_ref=self)
                 self._dispatcher.register(t.tool_name, handler)
-                rust_tools.append({
+                wasm_tools.append({
                     "name": t.tool_name,
                     "description": t.tool_spec["description"],
                     "inputSchema": t.tool_spec.get("inputSchema", {}),
@@ -339,7 +347,7 @@ class Agent:
                     spec = {k: v for k, v in td.items() if k != "handler"}
                     self._tool_map[td["name"]] = ToolEntry(func=td["handler"], spec=spec)
                     self._dispatcher.register(td["name"], td["handler"])
-                rust_tools.append({k: v for k, v in td.items() if k != "handler"})
+                wasm_tools.append({k: v for k, v in td.items() if k != "handler"})
             elif hasattr(t, "tool_name") and hasattr(t, "tool_spec") and callable(t):
                 name = t.tool_name
                 spec = t.tool_spec
@@ -365,7 +373,7 @@ class Agent:
                 self._tool_map[name] = ToolEntry(func=_make_tool_callable(t), spec=spec)
                 handler = _make_tool_handler(t, agent_ref)
                 self._dispatcher.register(name, handler)
-                rust_tools.append({
+                wasm_tools.append({
                     "name": name,
                     "description": spec.get("description", ""),
                     "inputSchema": spec.get("inputSchema", {}),
@@ -400,12 +408,12 @@ class Agent:
 
                     self._tool_map[name] = ToolEntry(func=_make_mcp_callable(mt), spec=spec)
                     self._dispatcher.register(name, _make_mcp_handler(mt))
-                    rust_tools.append({
+                    wasm_tools.append({
                         "name": name,
                         "description": spec.get("description", ""),
                         "inputSchema": spec.get("inputSchema", {}),
                     })
-        return rust_tools
+        return wasm_tools
 
     def _scan_tools_directory(self) -> None:
         """Scan ./tools/ for .py files with @tool-decorated functions."""
@@ -441,12 +449,12 @@ class Agent:
 
     @property
     def messages(self) -> list[dict[str, Any]]:
-        raw = json.loads(self._rust_agent.get_messages())
+        raw = json.loads(self._wasm_agent.get_messages())
         return [convert_message(msg) for msg in raw]
 
     @messages.setter
     def messages(self, value: list[dict[str, Any]]) -> None:
-        self._rust_agent.set_messages(json.dumps(value))
+        self._wasm_agent.set_messages(json.dumps(value))
 
     @property
     def tool(self) -> _ToolProxy:
@@ -478,9 +486,9 @@ class Agent:
         pending_tool_start: dict[str, float] = {}
 
         if tools is not None or tool_choice is not None:
-            uniffi_tools = (
+            wasm_tool_specs = (
                 [
-                    _ToolSpecConfig(
+                    _ToolSpec(
                         name=t["name"],
                         description=t.get("description", ""),
                         input_schema=json.dumps(t.get("inputSchema", {})),
@@ -490,21 +498,21 @@ class Agent:
                 if tools
                 else None
             )
-            stream = await self._rust_agent.start_stream_with_options(
-                prompt, uniffi_tools, tool_choice,
+            stream = await self._wasm_agent.start_stream_with_options(
+                prompt, wasm_tool_specs, tool_choice,
             )
         else:
-            stream = await self._rust_agent.start_stream(prompt)
+            stream = await self._wasm_agent.start_stream(prompt)
+        completed = False
         try:
             while True:
-                batch = await self._rust_agent.next_events(stream)
+                batch = await self._wasm_agent.next_events(stream)
                 if batch is None:
+                    completed = True
                     break
                 for raw_event in batch:
-                    kind = raw_event.kind
-
-                    if kind == "lifecycle":
-                        hook_event = lifecycle_event_from_wit(raw_event.lifecycle)
+                    if isinstance(raw_event, StreamEvent_Lifecycle):
+                        hook_event = lifecycle_event_from_wit(raw_event.value)
                         if hook_event is not None:
                             if isinstance(hook_event, AfterToolCallEvent) and self._last_tool_result:
                                 merged = dict(self._last_tool_result)
@@ -515,45 +523,43 @@ class Agent:
                             await self.hooks.fire_async(hook_event)
                         continue
 
-                    if kind == "text-delta":
-                        text = raw_event.text_delta or ""
+                    if isinstance(raw_event, StreamEvent_TextDelta):
+                        text = raw_event.value or ""
                         result.text_parts.append(text)
                         if self._printer:
                             print(text, end="", flush=True)
 
-                    elif kind == "stop":
-                        stop = raw_event.stop
-                        result.stop_reason = stop_reason_to_snake(stop)
-                        result.usage = stop.usage if stop else None
-                        latency = stop.metrics.latency_ms if stop and stop.metrics else 0.0
+                    elif isinstance(raw_event, StreamEvent_Stop):
+                        sd = raw_event.value
+                        result.stop_reason = stop_reason_to_snake(sd)
+                        result.usage = sd.usage
+                        latency = sd.metrics.latency_ms if sd.metrics else 0.0
                         result.metrics = Metrics(latency_ms=latency)
                         if self._printer and result.text_parts:
                             print()
 
-                    elif kind == "tool-use":
-                        tu = raw_event.tool_use
-                        if tu:
-                            pending_tool_start[tu.tool_use_id] = _time.monotonic()
-                            pending_tool_start[f"{tu.tool_use_id}:name"] = tu.name
+                    elif isinstance(raw_event, StreamEvent_ToolUse):
+                        tu = raw_event.value
+                        pending_tool_start[tu.tool_use_id] = _time.monotonic()
+                        pending_tool_start[f"{tu.tool_use_id}:name"] = tu.name
 
-                    elif kind == "tool-result":
-                        tr = raw_event.tool_result
-                        if tr:
-                            tid = tr.tool_use_id
-                            tool_name = pending_tool_start.pop(f"{tid}:name", "")
-                            if tid in pending_tool_start:
-                                duration = _time.monotonic() - pending_tool_start.pop(tid)
-                                tool_metrics.append({
-                                    "toolUseId": tid,
-                                    "duration": duration,
-                                    "status": tr.status,
-                                })
-                            success = tr.status == "success"
-                            if tool_name:
-                                self.event_loop_metrics.record_call(tool_name, success)
+                    elif isinstance(raw_event, StreamEvent_ToolResult):
+                        tr = raw_event.value
+                        tid = tr.tool_use_id
+                        tool_name = pending_tool_start.pop(f"{tid}:name", "")
+                        if tid in pending_tool_start:
+                            duration = _time.monotonic() - pending_tool_start.pop(tid)
+                            tool_metrics.append({
+                                "toolUseId": tid,
+                                "duration": duration,
+                                "status": tr.status,
+                            })
+                        success = tr.status == "success"
+                        if tool_name:
+                            self.event_loop_metrics.record_call(tool_name, success)
 
-                    elif kind == "error":
-                        err_msg = raw_event.error or ""
+                    elif isinstance(raw_event, StreamEvent_Error):
+                        err_msg = raw_event.value or ""
                         if "context" in err_msg.lower() and "exceeded" in err_msg.lower():
                             raise ContextOverflowError(err_msg)
                         if "maximum token" in err_msg.lower():
@@ -562,7 +568,8 @@ class Agent:
                             print(f"\n[error: {err_msg}]", file=sys.stderr)
 
         finally:
-            await self._rust_agent.close_stream(stream)
+            if not completed:
+                await self._wasm_agent.close_stream(stream)
 
         if result.stop_reason == "model_context_window_exceeded":
             raise ContextOverflowError("context window exceeded")
@@ -580,24 +587,26 @@ class Agent:
         try:
             sr = await self._consume_stream_async(prompt)
         except ContextOverflowError:
-            self.messages = []
+            await self._wasm_agent.set_messages_async("[]")
             sr = await self._consume_stream_async(prompt)
         except MaxTokensReachedException:
-            msgs = self.messages
+            raw = await self._wasm_agent.get_messages_async()
+            msgs = [convert_message(m) for m in json.loads(raw)]
             msgs.append({
                 "role": "user",
                 "content": [{"text": "tool use was incomplete due to maximum token limits being reached"}],
             })
-            self.messages = msgs
+            await self._wasm_agent.set_messages_async(json.dumps(msgs))
             raise
 
         if sr.stop_reason == "max_tokens":
-            msgs = self.messages
+            raw = await self._wasm_agent.get_messages_async()
+            msgs = [convert_message(m) for m in json.loads(raw)]
             msgs.append({
                 "role": "user",
                 "content": [{"text": "tool use was incomplete due to maximum token limits being reached"}],
             })
-            self.messages = msgs
+            await self._wasm_agent.set_messages_async(json.dumps(msgs))
             raise MaxTokensReachedException("max tokens reached")
 
         return AgentResult(
@@ -703,21 +712,24 @@ class Agent:
             yield {"result": result}
             return
 
-        stream = await self._rust_agent.start_stream(str(prompt))
+        stream = await self._wasm_agent.start_stream(str(prompt))
+        completed = False
         try:
             while True:
-                batch = await self._rust_agent.next_events(stream)
+                batch = await self._wasm_agent.next_events(stream)
                 if batch is None:
+                    completed = True
                     break
                 for event in batch:
-                    if event.kind == "lifecycle":
-                        hook_event = lifecycle_event_from_wit(event.lifecycle)
+                    if isinstance(event, StreamEvent_Lifecycle):
+                        hook_event = lifecycle_event_from_wit(event.value)
                         if hook_event is not None:
                             await self.hooks.fire_async(hook_event)
                         continue
                     yield event_to_dict(event)
         finally:
-            await self._rust_agent.close_stream(stream)
+            if not completed:
+                await self._wasm_agent.close_stream(stream)
 
     @staticmethod
     def _json_default(obj: Any) -> Any:
@@ -729,10 +741,10 @@ class Agent:
         raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
     def get_messages(self) -> str:
-        return self._rust_agent.get_messages()
+        return self._wasm_agent.get_messages()
 
     def set_messages(self, json_str: str) -> None:
-        self._rust_agent.set_messages(json_str)
+        self._wasm_agent.set_messages(json_str)
 
     def cleanup(self) -> None:
         """Clean up resources (MCP clients, etc.).

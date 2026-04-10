@@ -11,12 +11,10 @@ __pycache__/
 *.pdb
 *.pyd
 *.so
-**/*.rs.bk
 **/mutants.out*/
 .gradle/
 bin/
 build/
-strands-kt/lib/src/main/kotlin/uniffi/
 dist/
 node_modules/
 target/

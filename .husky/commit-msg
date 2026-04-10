@@ -3,11 +3,8 @@ SCOPES=(
   meta
   strands-ts
   strands-wasm
-  strands-rs
   strands-py
   strands-dev
-  strands-derive
-  strands-metrics
 )
 
 msg=$(head -1 "$1")

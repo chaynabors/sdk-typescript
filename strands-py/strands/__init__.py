@@ -1,6 +1,6 @@
 """strands -- Python host for the Strands Agent WASM component."""
 
-from strands._generated import StopReason, StreamEvent
+from strands._generated.types import StopReason, StreamEvent
 from strands.agent import Agent, AgentResult
 from strands.hooks import HookRegistry
 from strands.models.anthropic import AnthropicModel

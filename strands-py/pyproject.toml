@@ -1,13 +1,15 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "strands"
 version = "0.0.1"
 description = "Python host for the Strands Agent WASM component"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "wasmtime @ git+https://github.com/unshure/wasmtime-py.git@async-http",
+]
 
 [project.optional-dependencies]
 test = [
@@ -18,12 +20,16 @@ test = [
     "boto3>=1.35",
     "tenacity>=8.0",
 ]
+dev = [
+    "componentize-py"
+]
 
-[tool.maturin]
-manifest-path = "../strands-rs/Cargo.toml"
-bindings = "uniffi"
-python-source = "."
-module-name = "strands._generated"
+[project.scripts]
+generate-types = "scripts.generate_types:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["strands*", "scripts*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests_integ"]

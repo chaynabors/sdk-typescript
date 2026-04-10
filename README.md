@@ -1,6 +1,6 @@
 # Strands
 
-A multi-language AI agent SDK built on a WebAssembly component architecture. A single TypeScript agent runtime is compiled to a WASM component, hosted by Rust (Wasmtime), and exposed to other languages via UniFFI — one implementation serving all languages through a shared binary.
+A multi-language AI agent SDK built on a WebAssembly component architecture. A single TypeScript agent runtime is compiled to a WASM component and hosted directly by Python via `wasmtime-py` — one implementation serving all languages through a shared binary.
 
 See [docs](./docs) for the design proposal and ongoing team decisions.
 
@@ -8,7 +8,6 @@ See [docs](./docs) for the design proposal and ongoing team decisions.
 
 ### Prerequisites
 
-- Rust stable toolchain with the `wasm32-wasip2` target
 - Node.js 22+
 - Python 3.10+
 
@@ -38,28 +37,18 @@ graph TD
     TS -->|esbuild bundle| WASM_BUNDLE["strands-wasm (ESM bundle)"]
     WASM_GEN --> WASM_BUNDLE
     WASM_BUNDLE -->|componentize-js| WASM["agent.wasm (WASM component)"]
-
-    WASM -->|"AOT compile (build.rs)"| RS["strands-rs (Cargo)"]
-    RS -->|UniFFI cdylib| LIB["libstrands.so/.dylib"]
-
-    LIB -->|"maturin (uniffi)"| PY["strands-py (Python package)"]
-
-    LIB -->|uniffi-bindgen| KT_SRC["strands.kt (generated bindings)"]
-    KT_SRC -->|Gradle| KT["strands-kt (Kotlin/Java)"]
+    WASM -->|wasmtime-py| PY["strands-py (Python package)"]
 ```
 
-| Directory         | Language   | What it is                                                          |
-| ----------------- | ---------- | ------------------------------------------------------------------- |
-| `wit/`            | WIT        | Interface contract between the WASM guest and host                  |
-| `strands-ts/`     | TypeScript | Agent runtime: event loop, model providers, tools, hooks, streaming |
-| `strands-wasm/`   | TypeScript | Bridges the TS SDK to WIT exports, compiles to a WASM component     |
-| `strands-rs/`     | Rust       | WASM host: Wasmtime, AOT compilation, WASI HTTP, UniFFI             |
-| `strands-derive/` | Rust       | Proc macro: generates UniFFI wrapper types from WIT bindgen output  |
-| `strands-py/`     | Python     | Python wrapper: Agent class, @tool decorator, structured output     |
-| `strands-kt/`     | Kotlin     | Kotlin/Java wrapper via UniFFI bindings                             |
-| `strands-dev/`    | TypeScript | Dev CLI that orchestrates build, test, lint, and CI                 |
-| `uniffi-bindgen/` | Rust       | UniFFI binding generator utility                                    |
-| `docs/`           | Markdown   | Design proposal and team decisions                                  |
+| Directory      | Language   | What it is                                                          |
+| -------------- | ---------- | ------------------------------------------------------------------- |
+| `wit/`         | WIT        | Interface contract between the WASM guest and host                  |
+| `strands-ts/`  | TypeScript | Agent runtime: event loop, model providers, tools, hooks, streaming |
+| `strands-wasm/` | TypeScript | Bridges the TS SDK to WIT exports, compiles to a WASM component    |
+| `strands-py/`  | Python     | Python wrapper: Agent class, @tool decorator, direct WASM host      |
+| `wasmtime-py/` | Python     | Wasmtime Python bindings (local fork with async component model)    |
+| `strands-dev/` | TypeScript | Dev CLI that orchestrates build, test, lint, and CI                 |
+| `docs/`        | Markdown   | Design proposal and team decisions                                  |
 
 ### Generated code
 
@@ -70,16 +59,15 @@ graph TD
 
 Generated files are checked in and marked with `// @generated`. Do not edit them by hand. CI runs `generate --check` and fails if they are stale.
 
-UniFFI generates Python and Kotlin bindings from the compiled native library at build time. These are not checked in.
+Python types are hand-written in `_wasm_types.py`.
 
 ### Tests
 
 | Layer          | Framework | Location                                                          |
 | -------------- | --------- | ----------------------------------------------------------------- |
 | TypeScript SDK | vitest    | `strands-ts/src/**/__tests__/` (unit), `strands-ts/test/` (integ) |
-| Rust host      | cargo     | `strands-rs/src/` (doc-tests)                                     |
 | Python wrapper | pytest    | `strands-py/tests_integ/`                                         |
-| Kotlin wrapper | JUnit     | `strands-kt/lib/src/test/`                                        |
+| wasmtime-py    | pytest    | `wasmtime-py/tests/`                                              |
 
 Add tests alongside the code you change. Bug fixes should include a test that reproduces the original issue.
 
@@ -93,13 +81,11 @@ Each layer depends on the layers above it in the pipeline. The `validate` comman
 | TS SDK internals                      | `npm run dev -- validate ts`          |
 | TS SDK public API                     | `npm run dev -- validate ts-api`      |
 | WASM bridge (`strands-wasm/entry.ts`) | `npm run dev -- validate wasm`        |
-| Rust host (`strands-rs/`)             | `npm run dev -- validate rs`          |
-| Python bindings (Rust code)           | `npm run dev -- validate py-bindings` |
 | Pure Python (`strands-py/`)           | `npm run dev -- validate py`          |
 
 **TS internals vs. public API:** The WASM bridge (`strands-wasm/entry.ts`) imports specific types and functions from `strands-ts/`. If your change modifies something the bridge imports, it is a public API change — use `validate ts-api`. If the bridge does not import it, use `validate ts`.
 
-**WIT contract changes** cascade to every layer. After running `validate wit`, fix any compile errors in `strands-wasm/entry.ts`, `strands-rs/`, `strands-derive/`, and the language wrappers. The build will not succeed until every layer matches the new contract.
+**WIT contract changes** cascade to every layer. After running `validate wit`, fix any compile errors in `strands-wasm/entry.ts` and the language wrappers. The build will not succeed until every layer matches the new contract.
 
 ## Dev CLI
 
@@ -107,30 +93,28 @@ Each layer depends on the layers above it in the pipeline. The `validate` comman
 npm run dev -- <command> [options]
 ```
 
-Most commands accept layer flags (`--ts`, `--wasm`, `--rs`, `--py`, `--kt`). No flags means all layers.
+Most commands accept layer flags (`--ts`, `--wasm`, `--py`). No flags means all layers.
 
 | Command            | What it does                                                           |
 | ------------------ | ---------------------------------------------------------------------- |
 | `bootstrap`        | First-time setup: install, generate, build, test                       |
-| `setup`            | Install toolchains (`--rust`, `--node`, `--python`)                    |
+| `setup`            | Install toolchains (`--node`, `--python`)                              |
 | `generate`         | Regenerate type bindings from WIT (`--check`)                          |
-| `build`            | Compile layers (`--ts`, `--wasm`, `--rs`, `--py`, `--kt`, `--release`) |
-| `test`             | Run tests (`--rs`, `--py`, `--ts`, `--kt`, or a specific `[file]`)     |
-| `check`            | Lint and type-check (`--rs`, `--ts`, `--py`, `--kt`)                   |
+| `build`            | Compile layers (`--ts`, `--wasm`, `--py`, `--release`)                 |
+| `test`             | Run tests (`--py`, `--ts`, or a specific `[file]`)                     |
+| `check`            | Lint and type-check (`--ts`, `--py`)                                   |
 | `fmt`              | Format all code (`--check` to verify without writing)                  |
 | `validate <layer>` | Rebuild and test the layers affected by a change                       |
 | `ci`               | Full pipeline: generate, format, lint, build, test                     |
 | `rebuild`          | Clean rebuild: clean, generate, build                                  |
 | `report`           | Status report from `tasks.toml` (`--full` for task-level detail)       |
 | `clean`            | Remove all build artifacts                                             |
-| `example <name>`   | Run an example (`--rs`, `--py`, `--ts`, `--kt`, `--java`)              |
-| `upgrade`          | Bump Rust dependencies (`--incompatible`)                              |
+| `example <name>`   | Run an example (`--py`, `--ts`)                                        |
 
 ## Code style
 
 | Language   | Formatter     | Linter         |
 | ---------- | ------------- | -------------- |
-| Rust       | `cargo fmt`   | `cargo clippy` |
 | TypeScript | `prettier`    | `tsc --noEmit` |
 | Python     | `ruff format` | `ruff check`   |
 
@@ -146,4 +130,4 @@ Comments are normative statements that describe what code does or why a decision
 - Run `npm run dev -- ci` before pushing. This is the same pipeline CI runs.
 - Keep PRs focused on a single change.
 - Commit messages must be scoped: `[scope] message` (e.g., `[strands-py] Fix tool context injection`).
-  Valid scopes: `mono`, `meta`, `strands-ts`, `strands-wasm`, `strands-rs`, `strands-py`, `strands-dev`, `strands-derive`, `strands-metrics`. Enforced by a husky commit-msg hook.
+  Valid scopes: `mono`, `meta`, `strands-ts`, `strands-wasm`, `strands-py`, `strands-dev`, `strands-metrics`. Enforced by a husky commit-msg hook.

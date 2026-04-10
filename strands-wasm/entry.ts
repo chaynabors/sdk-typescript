@@ -34,7 +34,7 @@ import { GeminiModel } from '@strands-agents/sdk/gemini';
 import type { StopReason, AgentStreamEvent, Model, BaseModelConfig } from '@strands-agents/sdk';
 
 // All log calls go through `hostLog` (the WIT import).  The host can
-// route them to Python `logging`, Rust `tracing`, or whatever fits.
+// route them to the host language's logging framework (e.g. Python `logging`).
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 
